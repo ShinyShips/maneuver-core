@@ -1,10 +1,10 @@
 import {
   gamificationDB,
   updateScoutPoints,
-  type ScoutAchievement
+  type ScoutAchievement,
+  ACHIEVEMENT_DEFINITIONS
 } from '@/game-template/gamification';
 import {
-  ACHIEVEMENT_DEFINITIONS,
   checkAchievement,
   getAchievementProgress,
   type Achievement

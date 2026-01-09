@@ -1,6 +1,6 @@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/core/components/ui/table";
 import { Badge } from "@/core/components/ui/badge";
-import { calculateAccuracy } from '@/core/lib/scoutGameUtils';
+import { calculateAccuracy } from '@/core/lib/scoutGamificationUtils';
 import type { ScoutChartData, ScoutMetric } from '@/core/hooks/useScoutDashboard';
 
 interface ScoutTableProps {
@@ -47,13 +47,13 @@ export function ScoutTable({ chartData, chartMetric, selectedMetricLabel }: Scou
             return (
               <TableRow key={scout.name}>
                 <TableCell className="font-medium">
-                  <Badge 
+                  <Badge
                     variant={index >= 3 ? "secondary" : "default"}
                     className={
                       index === 0 ? "bg-yellow-500 text-white hover:bg-yellow-600" : // Gold
-                      index === 1 ? "bg-gray-400 text-black hover:bg-gray-500" :     // Silver  
-                      index === 2 ? "bg-amber-600 text-white hover:bg-amber-700" :   // Bronze
-                      ""
+                        index === 1 ? "bg-gray-400 text-black hover:bg-gray-500" :     // Silver  
+                          index === 2 ? "bg-amber-600 text-white hover:bg-amber-700" :   // Bronze
+                            ""
                     }
                   >
                     {index + 1}
@@ -74,9 +74,9 @@ export function ScoutTable({ chartData, chartMetric, selectedMetricLabel }: Scou
                 )}
                 {chartMetric !== "accuracy" && (
                   <TableCell className="text-right">
-                    <span className={accuracy >= 70 ? "text-green-600 dark:text-green-400" : 
-                                   accuracy >= 50 ? "text-yellow-600 dark:text-yellow-400" : 
-                                   "text-red-600 dark:text-red-400"}>
+                    <span className={accuracy >= 70 ? "text-green-600 dark:text-green-400" :
+                      accuracy >= 50 ? "text-yellow-600 dark:text-yellow-400" :
+                        "text-red-600 dark:text-red-400"}>
                       {accuracy}%
                     </span>
                   </TableCell>

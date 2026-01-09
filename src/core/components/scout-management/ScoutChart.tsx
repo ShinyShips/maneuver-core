@@ -1,6 +1,6 @@
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Cell, LineChart, Line, Legend, ResponsiveContainer } from "recharts";
 import { ChartContainer, ChartTooltip } from "@/core/components/ui/chart";
-import { calculateAccuracy } from '@/core/lib/scoutGameUtils';
+import { calculateAccuracy } from '@/core/lib/scoutGamificationUtils';
 import type { ScoutChartData, ScoutMetric } from '@/core/hooks/useScoutDashboard';
 import type { Scout } from '@/game-template/gamification';
 

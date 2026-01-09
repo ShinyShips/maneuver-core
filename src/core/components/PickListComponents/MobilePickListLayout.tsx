@@ -5,7 +5,7 @@
  * Matches 2025 styling.
  */
 
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/core/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/core/components/animate-ui/radix/tabs";
 import { AvailableTeamsPanel } from "./AvailableTeamsPanel";
 import { CreatePickList } from "./CreatePickList";
 import { PickListCard } from "./PickListCard";
@@ -80,7 +80,7 @@ export const MobilePickListLayout = ({
 }: MobilePickListLayoutProps) => {
     return (
         <div className="xl:hidden">
-            <Tabs value={activeTab} onValueChange={onTabChange} className="w-full">
+            <Tabs value={activeTab} onValueChange={onTabChange} enableSwipe className="w-full">
                 <TabsList className={`grid w-full ${showAllianceSelection ? 'grid-cols-3' : 'grid-cols-2'}`}>
                     <TabsTrigger value="teams">Available Teams</TabsTrigger>
                     {showAllianceSelection && <TabsTrigger value="alliances">Alliances</TabsTrigger>}

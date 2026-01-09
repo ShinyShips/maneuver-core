@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react"
 import { toast } from "sonner"
-import { getOrCreateScoutByName, deleteScout, getScout } from "@/core/lib/scoutGameUtils"
+import { getOrCreateScoutByName, deleteScout, getScout } from "@/core/lib/scoutGamificationUtils"
 
 export function useScoutManagement() {
   const [currentScout, setCurrentScout] = useState("")
@@ -12,7 +12,7 @@ export function useScoutManagement() {
     // Load from localStorage - this is the source of truth for selectable scouts
     const savedScouts = localStorage.getItem("scoutsList")
     const savedCurrentScout = localStorage.getItem("scoutName") || localStorage.getItem("currentScout")
-    
+
     let localStorageScouts: string[] = []
     if (savedScouts) {
       try {
@@ -21,11 +21,11 @@ export function useScoutManagement() {
         localStorageScouts = []
       }
     }
-    
+
     // Set the selectable scouts list from localStorage only
     // This respects the user's choice when importing ("Import Data Only" vs "Add to Selectable List")
     setScoutsList(localStorageScouts)
-    
+
     // Ensure any localStorage scouts exist in DB (for backwards compatibility)
     try {
       for (const scoutName of localStorageScouts) {
@@ -34,7 +34,7 @@ export function useScoutManagement() {
     } catch (error) {
       console.error("Error ensuring scouts exist in database:", error)
     }
-    
+
     if (savedCurrentScout) {
       setCurrentScout(savedCurrentScout)
       // Ensure current scout exists in DB and load their stakes
@@ -53,7 +53,7 @@ export function useScoutManagement() {
       setCurrentScoutStakes(0)
       return
     }
-    
+
     try {
       const scout = await getScout(scoutName)
       setCurrentScoutStakes(scout?.stakes || 0)
@@ -65,20 +65,20 @@ export function useScoutManagement() {
 
   const saveScout = async (name: string) => {
     if (!name.trim()) return
-    
+
     const trimmedName = name.trim()
-    const updatedList = scoutsList.includes(trimmedName) 
-      ? scoutsList 
+    const updatedList = scoutsList.includes(trimmedName)
+      ? scoutsList
       : [...scoutsList, trimmedName].sort()
-    
+
     setScoutsList(updatedList)
     setCurrentScout(trimmedName)
-    
+
     // Save to localStorage
     localStorage.setItem("scoutsList", JSON.stringify(updatedList))
     localStorage.setItem("currentScout", trimmedName)
     localStorage.setItem("scoutName", trimmedName) // For backwards compatibility
-    
+
     // Create/update scout in ScoutGameDB and get their stakes
     try {
       const scout = await getOrCreateScoutByName(trimmedName)
@@ -87,7 +87,7 @@ export function useScoutManagement() {
       console.error("Error creating scout in database:", error)
       toast.error(`Failed to save scout to database: ${error}`)
     }
-    
+
     toast.success(`Switched to scout: ${trimmedName}`)
   }
 
@@ -95,7 +95,7 @@ export function useScoutManagement() {
     const updatedList = scoutsList.filter(s => s !== name)
     setScoutsList(updatedList)
     localStorage.setItem("scoutsList", JSON.stringify(updatedList))
-    
+
     // Remove from database
     try {
       await deleteScout(name)
@@ -103,14 +103,14 @@ export function useScoutManagement() {
       console.error("Error removing scout from database:", error)
       // Don't show error toast as this is not critical
     }
-    
+
     if (currentScout === name) {
       setCurrentScout("")
       setCurrentScoutStakes(0)
       localStorage.removeItem("currentScout")
       localStorage.removeItem("scoutName")
     }
-    
+
     toast.success(`Removed scout: ${name}`)
   }
 
@@ -126,7 +126,7 @@ export function useScoutManagement() {
       clearScoutData()
       // Don't reload data since it was just cleared - the component will remain in cleared state
     }
-    
+
     // Listen for scout data updated event (when profiles are imported)
     const handleScoutDataUpdated = async () => {
       // Reload scouts to pick up any newly imported ones
@@ -137,13 +137,13 @@ export function useScoutManagement() {
         await updateCurrentScoutStakes(savedCurrentScout)
       }
     }
-    
+
     loadScouts()
-    
+
     // Add event listeners
     window.addEventListener('scoutDataCleared', handleScoutDataCleared)
     window.addEventListener('scoutDataUpdated', handleScoutDataUpdated)
-    
+
     // Cleanup event listeners
     return () => {
       window.removeEventListener('scoutDataCleared', handleScoutDataCleared)

@@ -5,7 +5,9 @@ import { Button } from "@/core/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/core/components/animate-ui/radix/tabs";
 import { AchievementCard } from './AchievementCard';
 import { getScoutAchievements, getAchievementStats, backfillAchievementsForAllScouts } from '@/core/lib/achievementUtils';
-import { getAchievementsByCategory, type Achievement } from '@/core/lib/achievementTypes';
+import { getAchievementsByCategory } from '@/core/lib/achievementTypes';
+import type { Achievement } from '@/core/types/achievements';
+import { ACHIEVEMENT_DEFINITIONS } from '@/game-template/gamification';
 import { Trophy, Target, Star, Users, Clock, TrendingUp, Zap, RefreshCw } from 'lucide-react';
 
 interface AchievementsSectionProps {
@@ -113,7 +115,7 @@ export const AchievementsSection: React.FC<AchievementsSectionProps> = ({ scoutN
     );
   }
 
-  const categories = getAchievementsByCategory();
+  const categories = getAchievementsByCategory(ACHIEVEMENT_DEFINITIONS);
   const availableByCategory: { [key: string]: Array<Achievement & { progress: number }> } = {};
   const unlockedByCategory: { [key: string]: Array<Achievement & { unlockedAt: number }> } = {};
 
@@ -196,7 +198,7 @@ export const AchievementsSection: React.FC<AchievementsSectionProps> = ({ scoutN
                 </Badge>
               </div>
               {/* Check Achievements Button - Inline on larger screens */}
-              <div className="lg:flex-shrink-0">
+              <div className="lg:shrink-0">
                 <Button
                   variant="outline"
                   size="sm"

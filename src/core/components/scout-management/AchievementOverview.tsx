@@ -5,7 +5,8 @@ import { Button } from "@/core/components/ui/button";
 import { Progress } from "@/core/components/ui/progress";
 import { Trophy, Star, Target, ChevronRight, RefreshCw } from 'lucide-react';
 import { getAchievementStats, getNextAchievements, backfillAchievementsForAllScouts } from '@/core/lib/achievementUtils';
-import { ACHIEVEMENT_TIERS, type Achievement } from '@/core/lib/achievementTypes';
+import { ACHIEVEMENT_TIERS } from '@/game-template/gamification';
+import type { Achievement } from '@/core/types/achievements';
 
 interface AchievementOverviewProps {
   scoutName: string;
@@ -138,7 +139,7 @@ export const AchievementOverview: React.FC<AchievementOverviewProps> = ({
               const recent = stats.recentAchievements[0];
               if (!recent) return null;
               return (
-                <div className="p-3 rounded-lg bg-gradient-to-r from-yellow-50 to-yellow-100 dark:from-yellow-900/20 dark:to-yellow-800/20 border border-yellow-200 dark:border-yellow-800">
+                <div className="p-3 rounded-lg bg-linear-to-r from-yellow-50 to-yellow-100 dark:from-yellow-900/20 dark:to-yellow-800/20 border border-yellow-200 dark:border-yellow-800">
                   <div className="flex items-center gap-2">
                     <span className="text-lg">{recent.icon}</span>
                     <div className="flex-1">

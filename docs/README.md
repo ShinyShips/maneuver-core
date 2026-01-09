@@ -17,13 +17,23 @@ This folder contains documentation for teams using the maneuver-core framework t
 - 🗄️ **[DATABASE.md](DATABASE.md)** - Using IndexedDB with Dexie
 - 📱 **[PWA.md](PWA.md)** - Progressive Web App setup
 - 🔄 **[DATA_TRANSFER.md](DATA_TRANSFER.md)** - QR codes and WebRTC sync
+- 📤 **[JSON_DATA_TRANSFER.md](JSON_DATA_TRANSFER.md)** - JSON/CSV export and import
 - 🔀 **[DATA_TRANSFORMATION.md](DATA_TRANSFORMATION.md)** - Action arrays to counter fields
+
+**Page Documentation:**
+
+- 📊 **[TEAM_STATS.md](TEAM_STATS.md)** - Team statistics and match history
+- 🎯 **[PICK_LISTS.md](PICK_LISTS.md)** - Alliance selection pick lists
+- 🏅 **[ACHIEVEMENTS.md](ACHIEVEMENTS.md)** - Scout achievements system
+- 👥 **[SCOUT_MANAGEMENT.md](SCOUT_MANAGEMENT.md)** - Scout dashboard and profiles
+- 📋 **[PIT_SCOUTING.md](PIT_SCOUTING.md)** - Pit scouting data collection
+- 🗑️ **[CLEAR_DATA.md](CLEAR_DATA.md)** - Data clearing utilities
+- 🛠️ **[DEV_UTILITIES.md](DEV_UTILITIES.md)** - Development and testing tools
 
 **Analysis Features:**
 
-- 📊 **[STRATEGY_OVERVIEW.md](STRATEGY_OVERVIEW.md)** - Strategy page configuration
-- 🎯 **[PICK_LISTS.md](PICK_LISTS.md)** - Alliance selection pick lists
-- 🏅 **[MATCH_STRATEGY.md](MATCH_STRATEGY.md)** - Match-specific strategy tools
+- 📈 **[STRATEGY_OVERVIEW.md](STRATEGY_OVERVIEW.md)** - Strategy page configuration
+- 🏟️ **[MATCH_STRATEGY.md](MATCH_STRATEGY.md)** - Match-specific strategy tools
 
 **React Guides:**
 

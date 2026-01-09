@@ -20,13 +20,21 @@ import strategyAnalysis, { type MatchResult } from "@/game-template/analysis";
  * MatchData for the dialog - uses MatchResult as base (single source of truth)
  * All fields are optional since dialog may receive partial data
  */
+type GameDataPhase = {
+    [key: string]: unknown;
+    startPosition?: number;
+};
+
 type MatchData = Partial<MatchResult> & {
+    // Game data with typed phases
+    gameData?: {
+        auto?: GameDataPhase;
+        teleop?: GameDataPhase;
+        endgame?: GameDataPhase;
+        [key: string]: unknown;
+    };
     // Additional display-specific fields not in MatchResult
     autoPassedMobilityLine?: boolean;
-    autoGamePiece1Count?: number;
-    autoGamePiece2Count?: number;
-    teleopGamePiece1Count?: number;
-    teleopGamePiece2Count?: number;
     climbAttempted?: boolean;
     climbSucceeded?: boolean;
     parkAttempted?: boolean;
@@ -73,9 +81,17 @@ export function MatchStatsDialog({
         return typeof value === 'number' ? value : 0;
     };
 
-    // Calculate totals (customize per game)
-    const autoTotal = num(matchData.autoGamePiece1Count) + num(matchData.autoGamePiece2Count);
-    const teleopTotal = num(matchData.teleopGamePiece1Count) + num(matchData.teleopGamePiece2Count);
+    // Calculate totals by summing all action counts
+    const sumCounts = (phaseData: GameDataPhase | undefined): number => {
+        if (!phaseData) return 0;
+        return Object.entries(phaseData)
+            .filter(([key]) => key.endsWith('Count'))
+            .reduce((sum, [, value]) => sum + num(value), 0);
+    };
+
+    const autoTotal = sumCounts(matchData.gameData?.auto);
+    const teleopTotal = sumCounts(matchData.gameData?.teleop);
+
 
     // Determine climb status (customize per game)
     const getClimbStatus = () => {
@@ -126,14 +142,16 @@ export function MatchStatsDialog({
                                     <div>
                                         <h4 className="font-semibold mb-3">Auto Scoring</h4>
                                         <div className="space-y-2">
-                                            <div className="flex justify-between">
-                                                <span>Game Piece 1:</span>
-                                                <span className="font-bold">{num(matchData.autoGamePiece1Count)}</span>
-                                            </div>
-                                            <div className="flex justify-between">
-                                                <span>Game Piece 2:</span>
-                                                <span className="font-bold">{num(matchData.autoGamePiece2Count)}</span>
-                                            </div>
+                                            {/* Dynamically render action counts from gameData.auto */}
+                                            {matchData.gameData?.auto && Object.entries(matchData.gameData.auto as Record<string, unknown>)
+                                                .filter(([key]) => key.endsWith('Count'))
+                                                .map(([key, value]) => (
+                                                    <div key={key} className="flex justify-between">
+                                                        <span>{key.replace('Count', '').replace(/([A-Z])/g, ' $1').trim()}:</span>
+                                                        <span className="font-bold">{num(value)}</span>
+                                                    </div>
+                                                ))
+                                            }
                                             <div className="flex justify-between pt-2 border-t">
                                                 <span className="font-semibold">Total Scored:</span>
                                                 <span className="font-bold text-blue-600">{autoTotal}</span>
@@ -143,14 +161,16 @@ export function MatchStatsDialog({
                                     <div>
                                         <h4 className="font-semibold mb-3">Teleop Scoring</h4>
                                         <div className="space-y-2">
-                                            <div className="flex justify-between">
-                                                <span>Game Piece 1:</span>
-                                                <span className="font-bold">{num(matchData.teleopGamePiece1Count)}</span>
-                                            </div>
-                                            <div className="flex justify-between">
-                                                <span>Game Piece 2:</span>
-                                                <span className="font-bold">{num(matchData.teleopGamePiece2Count)}</span>
-                                            </div>
+                                            {/* Dynamically render action counts from gameData.teleop */}
+                                            {matchData.gameData?.teleop && Object.entries(matchData.gameData.teleop as Record<string, unknown>)
+                                                .filter(([key]) => key.endsWith('Count'))
+                                                .map(([key, value]) => (
+                                                    <div key={key} className="flex justify-between">
+                                                        <span>{key.replace('Count', '').replace(/([A-Z])/g, ' $1').trim()}:</span>
+                                                        <span className="font-bold">{num(value)}</span>
+                                                    </div>
+                                                ))
+                                            }
                                             <div className="flex justify-between pt-2 border-t">
                                                 <span className="font-semibold">Total Scored:</span>
                                                 <span className="font-bold text-purple-600">{teleopTotal}</span>
@@ -158,6 +178,7 @@ export function MatchStatsDialog({
                                         </div>
                                     </div>
                                 </div>
+
 
                                 {/* Points Summary */}
                                 <div className="mt-6 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">

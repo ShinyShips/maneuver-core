@@ -37,9 +37,10 @@ import StrategyOverviewPage from "@/core/pages/StrategyOverviewPage";
 import MatchStrategyPage from "@/core/pages/MatchStrategyPage";
 import PickListPage from "@/core/pages/PickListPage";
 // import PitScoutingPage from "@/pages/PitScoutingPage";
-// import ScoutManagementDashboardPage from "./pages/ScoutManagementDashboardPage";
-// import AchievementsPage from "./pages/AchievementsPage";
-// import DevUtilitiesPage from "./pages/DevUtilitiesPage";
+import ScoutManagementDashboardPage from "@/core/pages/ScoutManagementDashboardPage";
+import AchievementsPage from "@/core/pages/AchievementsPage";
+import DevUtilitiesPage from "@/core/pages/DevUtilitiesPage";
+
 // import { MatchValidationPage } from "./pages/MatchValidationPage";
 import { InstallPrompt } from '@/core/components/pwa/InstallPrompt';
 import { PWAUpdatePrompt } from '@/core/components/pwa/PWAUpdatePrompt';
@@ -106,9 +107,10 @@ function App() {
         <Route path="/pick-list" element={<PickListPage />} />
         {/* <Route path="/pit-scouting" element={<PitScoutingPage />} />  */}
         {/* <Route path="/match-validation" element={<MatchValidationPage />} /> */}
-        {/* <Route path="/scout-management" element={<ScoutManagementDashboardPage />} /> */}
-        {/* <Route path="/achievements" element={<AchievementsPage />} /> */}
-        {/* <Route path="/dev-utilities" element={<DevUtilitiesPage />} /> */}
+        <Route path="/scout-management" element={<ScoutManagementDashboardPage />} />
+        <Route path="/achievements" element={<AchievementsPage />} />
+        <Route path="/dev-utilities" element={<DevUtilitiesPage />} />
+
 
         {/* Add more routes as needed */}
         <Route path="*" element={<NotFoundPage />} />
@@ -141,53 +143,32 @@ function App() {
         // Make analytics available globally for testing
         (window as typeof window & { analytics: typeof analytics }).analytics = analytics;
 
-        // GAME-SPECIFIC: Uncomment these in your game implementation
         // Make achievement functions available globally for debugging
-        // import('./lib/achievementUtils').then(achievementUtils => {
-        //   (window as typeof window & { achievements: { backfillAll: () => Promise<void>, checkForNewAchievements: (name: string) => Promise<unknown[]> } }).achievements = {
-        //     backfillAll: achievementUtils.backfillAchievementsForAllScouts,
-        //     checkForNewAchievements: achievementUtils.checkForNewAchievements
-        //   };
-        // });
+        import('@/core/lib/achievementUtils').then(achievementUtils => {
+          (window as any).achievements = {
+            backfillAll: achievementUtils.backfillAchievementsForAllScouts
+          };
+        });
 
         // Make test data generator available globally for testing
-        // import('./lib/testDataGenerator').then(testData => {
-        //   (window as typeof window & { testData: { createTestProfiles: () => Promise<unknown>, clearAll: () => Promise<void> } }).testData = {
-        //     createTestProfiles: testData.createTestScoutProfiles,
-        //     clearAll: testData.clearTestData
-        //   };
-        //   console.log('🧪 Test data functions available:');
-        //   console.log('  - window.testData.createTestProfiles() - Create test scout profiles');
-        //   console.log('  - window.testData.clearAll() - Clear all scout data');
-        // });
+        import('@/core/lib/testDataGenerator').then(testData => {
+          (window as any).dev = {
+            seedData: () => testData.generateRandomScoutingData(30),
+            seedScouts: testData.generateRandomScouts,
+            resetDB: testData.resetEntireDatabase
+          };
+          console.log('🧪 Dev utilities available on window.dev');
+        });
 
-        // Make gameDB available for debugging
-        // import('./lib/dexieDB').then(db => {
-        //   (window as typeof window & { gameDB: typeof db.gameDB }).gameDB = db.gameDB;
-        //   console.log('🗄️ Database available at window.gameDB');
-        // });
-
-        // Debug function to check scout data
-        // (window as typeof window & { debugScoutData: (name: string) => Promise<void> }).debugScoutData = async (scoutName: string) => {
-        //   const { gameDB } = await import('./lib/dexieDB');
-        //   const scout = await gameDB.scouts.get(scoutName);
-        //   console.log(`Scout data for ${scoutName}:`, scout);
-        //   
-        //   const achievements = await gameDB.scoutAchievements.where('scoutName').equals(scoutName).toArray();
-        //   console.log(`Achievements for ${scoutName}:`, achievements);
-        //   
-        //   // Check specific stake achievements
-        //   const { checkAchievement, ACHIEVEMENT_DEFINITIONS } = await import('./lib/achievementTypes');
-        //   const stakeAchievements = ACHIEVEMENT_DEFINITIONS.filter(a => a.id.startsWith('stakes_'));
-        //   
-        //   stakeAchievements.forEach(achievement => {
-        //     const isUnlocked = achievements.some(a => a.achievementId === achievement.id);
-        //     const meetsRequirements = checkAchievement(achievement, scout!);
-        //     console.log(`${achievement.name}: unlocked=${isUnlocked}, meetsReq=${meetsRequirements}, stakesFromPredictions=${scout?.stakesFromPredictions}`);
-        //   });
-        // };
-
-        // console.log('🐛 Debug function available: window.debugScoutData("Riley Davis")');
+        // Make databases available for debugging
+        import('@/db').then(db => {
+          (window as any).dbs = {
+            main: db.db,
+            pit: db.pitDB,
+            game: db.gameDB
+          };
+          console.log('🗄️ Databases available at window.dbs');
+        });
       }, 2000);
     }
 

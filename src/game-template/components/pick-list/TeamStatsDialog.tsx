@@ -83,14 +83,16 @@ export function TeamStatsDialog({
                                                 <span>Avg Total Points:</span>
                                                 <span className="font-bold text-blue-600">{overall?.avgTotalPoints || 0}</span>
                                             </div>
-                                            <div className="flex justify-between">
-                                                <span>Avg Game Piece 1:</span>
-                                                <span className="font-bold">{overall?.avgGamePiece1 || 0}</span>
-                                            </div>
-                                            <div className="flex justify-between">
-                                                <span>Avg Game Piece 2:</span>
-                                                <span className="font-bold">{overall?.avgGamePiece2 || 0}</span>
-                                            </div>
+                                            {/* Dynamically render action averages from overall stats */}
+                                            {overall && Object.entries(overall as Record<string, unknown>)
+                                                .filter(([key]) => key.startsWith('avg') && key !== 'avgTotalPoints' && key !== 'avgGamePiece1' && key !== 'avgGamePiece2')
+                                                .map(([key, value]) => (
+                                                    <div key={key} className="flex justify-between">
+                                                        <span>{key.replace('avg', 'Avg ').replace(/([A-Z])/g, ' $1').trim()}:</span>
+                                                        <span className="font-bold">{typeof value === 'number' ? value : 0}</span>
+                                                    </div>
+                                                ))
+                                            }
                                             <div className="flex justify-between pt-2 border-t">
                                                 <span className="font-semibold">Matches Played:</span>
                                                 <span className="font-bold text-orange-600">{teamStats.matchCount}</span>
@@ -122,14 +124,16 @@ export function TeamStatsDialog({
                                                 <span>Avg Points:</span>
                                                 <span className="font-bold text-blue-600">{auto?.avgPoints || 0}</span>
                                             </div>
-                                            <div className="flex justify-between">
-                                                <span>Avg Game Piece 1:</span>
-                                                <span className="font-bold">{auto?.avgGamePiece1 || 0}</span>
-                                            </div>
-                                            <div className="flex justify-between">
-                                                <span>Avg Game Piece 2:</span>
-                                                <span className="font-bold">{auto?.avgGamePiece2 || 0}</span>
-                                            </div>
+                                            {/* Dynamically render action averages */}
+                                            {auto && Object.entries(auto as Record<string, unknown>)
+                                                .filter(([key]) => key.startsWith('avg') && key !== 'avgPoints' && key !== 'avgGamePiece1' && key !== 'avgGamePiece2')
+                                                .map(([key, value]) => (
+                                                    <div key={key} className="flex justify-between">
+                                                        <span>{key.replace('avg', 'Avg ').replace(/([A-Z])/g, ' $1').trim()}:</span>
+                                                        <span className="font-bold">{typeof value === 'number' ? value : 0}</span>
+                                                    </div>
+                                                ))
+                                            }
                                             <div className="flex justify-between pt-2 border-t">
                                                 <span>Mobility Rate:</span>
                                                 <span className="font-bold text-green-600">{auto?.mobilityRate || 0}%</span>
@@ -161,14 +165,16 @@ export function TeamStatsDialog({
                                             <span>Avg Points:</span>
                                             <span className="font-bold text-purple-600">{teleop?.avgPoints || 0}</span>
                                         </div>
-                                        <div className="flex justify-between">
-                                            <span>Avg Game Piece 1:</span>
-                                            <span className="font-bold">{teleop?.avgGamePiece1 || 0}</span>
-                                        </div>
-                                        <div className="flex justify-between">
-                                            <span>Avg Game Piece 2:</span>
-                                            <span className="font-bold">{teleop?.avgGamePiece2 || 0}</span>
-                                        </div>
+                                        {/* Dynamically render action averages */}
+                                        {teleop && Object.entries(teleop as Record<string, unknown>)
+                                            .filter(([key]) => key.startsWith('avg') && key !== 'avgPoints' && key !== 'avgGamePiece1' && key !== 'avgGamePiece2')
+                                            .map(([key, value]) => (
+                                                <div key={key} className="flex justify-between">
+                                                    <span>{key.replace('avg', 'Avg ').replace(/([A-Z])/g, ' $1').trim()}:</span>
+                                                    <span className="font-bold">{typeof value === 'number' ? value : 0}</span>
+                                                </div>
+                                            ))
+                                        }
                                     </div>
                                 </div>
                             </TabsContent>

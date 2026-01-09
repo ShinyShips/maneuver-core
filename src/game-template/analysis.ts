@@ -160,6 +160,8 @@ export const strategyAnalysis: StrategyAnalysis<ScoutingEntryTemplate> = {
 
             return {
                 matchNumber: String(entry.matchNumber),
+                teamNumber: entry.teamNumber,
+                scoutName: entry.scoutName,
                 alliance: entry.allianceColor,
                 eventKey: entry.eventKey || '',
                 totalPoints: autoPoints + teleopPoints + endgamePoints,
@@ -170,6 +172,8 @@ export const strategyAnalysis: StrategyAnalysis<ScoutingEntryTemplate> = {
                 brokeDown: entry.gameData?.endgame?.option2 || false,
                 startPosition: entry.gameData?.auto?.startPosition ?? -1,
                 comment: entry.comments || '',
+                // Include all action counts for the dialog
+                gameData: entry.gameData,
             };
         });
 

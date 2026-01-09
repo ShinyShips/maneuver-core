@@ -52,3 +52,8 @@ export {
     getLeaderboard,
     getOrCreateScoutByName,
 } from './utils';
+
+export {
+    ACHIEVEMENT_DEFINITIONS,
+    ACHIEVEMENT_TIERS,
+} from './achievements';

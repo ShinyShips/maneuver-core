@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { getAllScouts, calculateAccuracy } from '@/core/lib/scoutGameUtils';
+import { getAllScouts, calculateAccuracy } from '@/core/lib/scoutGamificationUtils';
 import { getAchievementStats } from '@/core/lib/achievementUtils';
 import type { Scout } from '@/game-template/gamification';
 import { analytics } from '@/core/lib/analytics';

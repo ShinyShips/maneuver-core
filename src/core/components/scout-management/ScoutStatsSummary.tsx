@@ -1,6 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/core/components/ui/card";
 import { Sigma, TrendingUpDown, Award, Target } from "lucide-react";
-import { calculateAccuracy } from '@/core/lib/scoutGameUtils';
+import { calculateAccuracy } from '@/core/lib/scoutGamificationUtils';
 import type { Scout } from '@/game-template/gamification';
 
 interface ScoutStatsSummaryProps {
@@ -10,7 +10,7 @@ interface ScoutStatsSummaryProps {
 export function ScoutStatsSummary({ scouts }: ScoutStatsSummaryProps) {
   const totalPredictions = scouts.reduce((sum, s) => sum + s.totalPredictions, 0);
   const totalStakes = scouts.reduce((sum, s) => sum + s.stakes, 0);
-  const avgAccuracy = scouts.length > 0 
+  const avgAccuracy = scouts.length > 0
     ? Math.round(scouts.reduce((sum, s) => sum + calculateAccuracy(s), 0) / scouts.length)
     : 0;
 

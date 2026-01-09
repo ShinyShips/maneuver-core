@@ -23,11 +23,9 @@ import { getMatchResult, type TBAMatch } from '@/core/lib/tba';
 import {
   getAllPredictionsForMatch,
   markPredictionAsVerified,
-} from '@/core/db/database';
-import {
   STAKE_VALUES,
   updateScoutWithPredictionResult,
-} from '@/core/lib/scoutGameUtils';
+} from '@/db';
 
 interface MatchSelectorProps {
   matches: TBAMatch[];

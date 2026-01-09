@@ -7,10 +7,8 @@
 export {
   db,
   pitDB,
-  gameDB,
   MatchScoutingDB,
   PitScoutingDB,
-  ScoutProfileDB,
 } from '../core/db/database';
 
 // Scouting data operations
@@ -25,21 +23,13 @@ export {
   findExistingScoutingEntry,
   updateScoutingEntryWithCorrection,
   deleteScoutingEntry,
-  deleteScoutingEntries,
   clearAllScoutingData,
 } from '../core/db/database';
 
 // Database statistics
 export {
   getDBStats,
-  getFilterOptions,
   queryScoutingEntries,
-} from '../core/db/database';
-
-// Data cleanup
-export {
-  cleanupDuplicateEntries,
-  normalizeAllianceValues,
 } from '../core/db/database';
 
 // Import/export
@@ -53,39 +43,39 @@ export {
   savePitScoutingEntry,
   loadAllPitScoutingEntries,
   loadPitScoutingByTeam,
-  loadPitScoutingByEvent,
   loadPitScoutingByTeamAndEvent,
+  loadPitScoutingByEvent,
   deletePitScoutingEntry,
   clearAllPitScoutingData,
   getPitScoutingStats,
 } from '../core/db/database';
 
-// Scout profile operations (gamification)
+// ============================================================================
+// GAMIFICATION EXPORTS (re-exported from template for convenience)
+// ============================================================================
+
 export {
+  gamificationDB as gameDB,
   getOrCreateScout,
   getScout,
   getAllScouts,
   updateScoutPoints,
   updateScoutStats,
   deleteScout,
-  clearGameData,
-} from '../core/db/database';
-
-// Match prediction operations
-export {
-  savePrediction,
-  getPrediction,
+  clearGamificationData as clearGameData,
+  createMatchPrediction as savePrediction,
+  getPredictionForMatch as getPrediction,
   getAllPredictionsForScout,
   getAllPredictionsForMatch,
   markPredictionAsVerified,
-} from '../core/db/database';
-
-// Achievement operations
-export {
   unlockAchievement,
   getScoutAchievements,
   hasAchievement,
-} from '../core/db/database';
+  STAKE_VALUES,
+  calculateStreakBonus,
+  calculateAccuracy,
+  updateScoutWithPredictionResult,
+} from '@/game-template/gamification';
 
 // Data utilities
 export {
@@ -102,11 +92,3 @@ export type {
   ConflictResolution,
   ConflictResult,
 } from '../core/db/dataUtils';
-
-// Scout gamification utilities
-export {
-  STAKE_VALUES,
-  calculateStreakBonus,
-  updateScoutWithPredictionResult,
-  calculateAccuracy,
-} from '../core/lib/scoutGameUtils';

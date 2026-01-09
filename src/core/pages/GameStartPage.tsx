@@ -16,7 +16,7 @@ import {
 import { toast } from "sonner";
 import GameStartSelectTeam from "@/core/components/GameStartComponents/GameStartSelectTeam";
 import { EventNameSelector } from "@/core/components/GameStartComponents/EventNameSelector";
-import { createMatchPrediction, getPredictionForMatch } from "@/core/lib/scoutGameUtils";
+import { createMatchPrediction, getPredictionForMatch } from "@/core/lib/scoutGamificationUtils";
 import { AlertTriangle, RefreshCw } from "lucide-react";
 
 const GameStartPage = () => {

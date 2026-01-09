@@ -120,8 +120,11 @@ export function PerformanceAnalysis({
                                     parkAttempted: !!match['parkAttempted'],
                                     brokeDown: !!match['brokeDown'],
                                     playedDefense: !!match['playedDefense'],
-                                    // Pass raw match data for game-specific fields
-                                    ...match
+                                    gameData: match['gameData'] as {
+                                        auto?: Record<string, unknown>;
+                                        teleop?: Record<string, unknown>;
+                                        endgame?: Record<string, unknown>;
+                                    } | undefined,
                                 }}
                                 variant="outline"
                                 size="default"

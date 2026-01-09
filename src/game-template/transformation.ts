@@ -13,10 +13,13 @@ import { toggles, getActionKeys, getActionPoints, type ActionKey } from "./game-
 /**
  * Generate default values for all action counters
  */
-function generateActionDefaults(): Record<string, number> {
+function generateActionDefaults(phase: 'auto' | 'teleop'): Record<string, number> {
   const defaults: Record<string, number> = {};
   getActionKeys().forEach(key => {
-    defaults[`${key}Count`] = 0;
+    // Only verify points for the specific phase using getActionPoints
+    if (getActionPoints(key, phase) > 0) {
+      defaults[`${key}Count`] = 0;
+    }
   });
   return defaults;
 }
@@ -45,11 +48,11 @@ export const gameDataTransformation: DataTransformation = {
     const result: Record<string, any> = {
       auto: {
         startPosition,
-        ...generateActionDefaults(),
+        ...generateActionDefaults('auto'),
         ...generateToggleDefaults('auto'),
       },
       teleop: {
-        ...generateActionDefaults(),
+        ...generateActionDefaults('teleop'),
         ...generateToggleDefaults('teleop'),
       },
       endgame: {
