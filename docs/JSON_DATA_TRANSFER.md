@@ -2,6 +2,8 @@
 
 ## Overview
 
+> **💡 Looking for real-time WiFi transfer?** See [PEER_TRANSFER.md](./PEER_TRANSFER.md) for WebRTC device-to-device sync.
+
 The JSON Data Transfer system provides a complete solution for importing and exporting scouting data between devices, creating backups, and analyzing data in external tools like Excel or Google Sheets.
 
 ## Table of Contents

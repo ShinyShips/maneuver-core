@@ -5,7 +5,8 @@
   "description": "Year-agnostic FRC scouting framework - fork this template to build your custom scouting app",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "netlify dev",
+    "dev:vite": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
@@ -89,6 +90,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.15.0",
+    "@netlify/functions": "^5.1.2",
     "@tailwindcss/vite": "^4.0.0-beta.6",
     "@types/d3": "^7.4.3",
     "@types/node": "^22.10.1",
@@ -102,6 +104,7 @@
     "eslint-plugin-react-hooks": "^5.0.0",
     "eslint-plugin-react-refresh": "^0.4.14",
     "globals": "^15.12.0",
+    "netlify-cli": "^17.38.1",
     "prettier": "^3.3.3",
     "rimraf": "^6.0.1",
     "tailwindcss": "^4.0.0-beta.6",

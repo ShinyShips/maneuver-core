@@ -16,7 +16,8 @@ This folder contains documentation for teams using the maneuver-core framework t
 
 - 🗄️ **[DATABASE.md](DATABASE.md)** - Using IndexedDB with Dexie
 - 📱 **[PWA.md](PWA.md)** - Progressive Web App setup
-- 🔄 **[DATA_TRANSFER.md](DATA_TRANSFER.md)** - QR codes and WebRTC sync
+- 🔄 **[DATA_TRANSFER.md](DATA_TRANSFER.md)** - QR codes for offline sync
+- 📡 **[PEER_TRANSFER.md](PEER_TRANSFER.md)** - WebRTC WiFi device sync
 - 📤 **[JSON_DATA_TRANSFER.md](JSON_DATA_TRANSFER.md)** - JSON/CSV export and import
 - 🔀 **[DATA_TRANSFORMATION.md](DATA_TRANSFORMATION.md)** - Action arrays to counter fields
 

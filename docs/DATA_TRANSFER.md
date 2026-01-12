@@ -4,6 +4,8 @@
 
 This document describes the QR code data transfer system using Luby Transform fountain codes for reliable offline data exchange.
 
+> **💡 Looking for WiFi transfer?** See [PEER_TRANSFER.md](./PEER_TRANSFER.md) for real-time WebRTC device-to-device transfer.
+
 ## Overview
 
 The data transfer system consists of:

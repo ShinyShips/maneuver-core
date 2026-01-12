@@ -41,3 +41,6 @@ docs/CORE_COPY_PLAN.md
 docs/TYPE_VALIDATION_REPORT.md
 docs/REVIEW_CHECKLIST.md
 maneuver-core.code-workspace
+
+# Local Netlify folder
+.netlify

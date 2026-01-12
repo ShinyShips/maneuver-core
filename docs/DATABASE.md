@@ -25,7 +25,7 @@ interface ScoutingEntryBase<TGameData> {
   alliance?: string;             // "red" or "blue"
   scoutName?: string;           // Who scouted this match
   eventName?: string;            // Event key (e.g., "2025mrcmp")
-  data: TGameData;               // ← Game-specific JSON (teams define structure)
+  gameData: TGameData;               // ← Game-specific JSON (teams define structure)
   timestamp: number;             // Entry creation time
   
   // Correction tracking (for re-scouting workflow)
@@ -38,7 +38,7 @@ interface ScoutingEntryBase<TGameData> {
 }
 ```
 
-**Key Design Decision:** The `data` field holds game-specific information. Framework code never directly accesses `data.autoCoralCount` or similar - that's handled by game implementations through the interface system.
+**Key Design Decision:** The `gameData` field holds game-specific information. Framework code never directly accesses `gameData.autoCoralCount` or similar - that's handled by game implementations through the interface system.
 
 ## Database Schema Evolution
 
@@ -91,7 +91,7 @@ import {
 // Save single entry
 await saveScoutingEntry({
   id: '2025mrcmp::qm42::3314::red',
-  data: { /* game-specific */ },
+  gameData: { /* game-specific */ },
   timestamp: Date.now()
 });
 
@@ -167,7 +167,7 @@ const options = await getFilterOptions();
 ```typescript
 import { exportScoutingData, importScoutingData } from '@/db';
 
-// Export all data
+// Export all gameData
 const exportData = await exportScoutingData();
 // {
 //   entries: [...],
@@ -180,14 +180,14 @@ const blob = new Blob([JSON.stringify(exportData)], { type: 'application/json' }
 const url = URL.createObjectURL(blob);
 const a = document.createElement('a');
 a.href = url;
-a.download = `scouting-data-${Date.now()}.json`;
+a.download = `scouting-gameData-${Date.now()}.json`;
 a.click();
 
-// Import data (append mode - skips duplicates)
+// Import gameData (append mode - skips duplicates)
 const result = await importScoutingData({ entries: [...] }, 'append');
 // { success: true, importedCount: 50, duplicatesSkipped: 5 }
 
-// Import data (overwrite mode - replaces all data)
+// Import gameData (overwrite mode - replaces all gameData)
 const result = await importScoutingData({ entries: [...] }, 'overwrite');
 // { success: true, importedCount: 50 }
 ```
@@ -223,7 +223,7 @@ if (entry) {
     entry.id,
     {
       id: entry.id,
-      data: { /* corrected game data */ },
+      gameData: { /* corrected game data */ },
       timestamp: Date.now()
     },
     'Fixed auto coral count - video review showed 4 not 3',
@@ -243,7 +243,7 @@ import { generateDeterministicEntryId, generateEntryId } from '@/db';
 const id = generateDeterministicEntryId('2025mrcmp', 'qm42', '3314', 'red');
 // → "2025mrcmp::qm42::3314::red"
 
-// Generate ID from data object
+// Generate ID from gameData object
 const id = generateEntryId({
   eventName: '2025mrcmp',
   matchNumber: 'qm42',
@@ -257,7 +257,7 @@ const id = generateEntryId({
 - **Natural collision detection**: Same match/team/alliance = same ID
 - **Human-readable**: Easy to debug
 - **Indexed**: Fast lookups without extra queries
-- **Deterministic**: Same data always generates same ID
+- **Deterministic**: Same gameData always generates same ID
 
 ### Conflict Detection
 
@@ -317,8 +317,8 @@ await savePitScoutingEntry({
   eventName: '2025mrcmp',
   scoutName: 'Alice',
   timestamp: Date.now(),
-  data: {
-    // Game-specific pit data
+  gameData: {
+    // Game-specific pit gameData
     drivetrainType: 'swerve',
     programmingLanguage: 'Java',
     // ... robot measurements, capabilities, etc.
@@ -403,13 +403,13 @@ const entries = await loadScoutingEntriesByTeam('3314');
 // ✅ FAST - Uses compound index
 const entries = await loadScoutingEntriesByTeamAndEvent('3314', '2025mrcmp');
 
-// ⚠️ SLOWER - No index on game-specific data
+// ⚠️ SLOWER - No index on game-specific gameData
 const results = await db.scoutingData
   .toArray()
-  .then(entries => entries.filter(e => e.data.autoCoralCount > 5));
+  .then(entries => entries.filter(e => e.gameData.autoCoralCount > 5));
 ```
 
-**Rule:** If you need to query game-specific data frequently, extract it to a top-level indexed field in your game implementation's database extension.
+**Rule:** If you need to query game-specific gameData frequently, extract it to a top-level indexed field in your game implementation's database extension.
 
 ### Bulk Operations
 
@@ -486,7 +486,7 @@ describe('Database Operations', () => {
   it('should save and retrieve entry', async () => {
     const entry = {
       id: '2025mrcmp::qm1::3314::red',
-      data: { test: true },
+      gameData: { test: true },
       timestamp: Date.now()
     };
     
@@ -506,18 +506,22 @@ describe('Database Operations', () => {
 ```typescript
 // Old format (Maneuver 2024 and earlier)
 {
-  "data": [
+  "gameData": [
     { "matchNumber": "qm1", "teamNumber": "3314", ... },
     { "matchNumber": "qm2", "teamNumber": "5678", ... }
   ]
 }
 
 // New format (maneuver-core)
+// Note: File exports imply a wrapper for metadata (version, timestamp), 
+// but the system also accepts raw arrays for flexibility.
 {
+  "version": "3.0-maneuver-core",
+  "exportedAt": 1704153600000,
   "entries": [
     {
       "id": "2025mrcmp::qm1::3314::red",
-      "data": { "matchNumber": "qm1", "teamNumber": "3314", ... },
+      "gameData": { "matchNumber": "qm1", "teamNumber": "3314", ... },
       "timestamp": 1704067200000
     }
   ]

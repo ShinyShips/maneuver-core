@@ -49,8 +49,10 @@ export function WebRTCPushedDataDialog() {
         if (data.scoutProfiles?.scouts) parts.push(`${data.scoutProfiles.scouts.length} scouts`);
         if (data.scoutProfiles?.predictions) parts.push(`${data.scoutProfiles.predictions.length} predictions`);
       } else if (pushedDataType === 'scouting' || pushedDataType === 'pit-scouting') {
-        // Scouting or pit data
-        if (data.entries) parts.push(`${data.entries.length} entries`);
+        // Scouting or pit data - wrapped format with entries
+        if (data.entries && Array.isArray(data.entries)) {
+          parts.push(`${data.entries.length} entries`);
+        }
       } else if (pushedDataType === 'match') {
         // Match data
         if (data.matches) parts.push(`${Array.isArray(data.matches) ? data.matches.length : 0} matches`);
@@ -115,63 +117,51 @@ export function WebRTCPushedDataDialog() {
         }
 
       } else if (pushedDataType === 'scouting') {
-        // Import scouting data
-        const data = pushedData as any;
+        // Import scouting data - wrapped format with entries
+        const data = pushedData as { entries?: any[]; version?: string; exportedAt?: number };
+        const entries = data.entries;
 
-        console.log('📦 Scouting data structure:', {
-          dataType: typeof data,
-          hasEntries: !!data?.entries,
-          entriesIsArray: Array.isArray(data?.entries),
-          entriesLength: data?.entries?.length,
-          dataKeys: data ? Object.keys(data) : 'no data',
-          firstEntry: data?.entries?.[0]
-        });
-
-        if (!data) {
-          throw new Error('No scouting data received');
+        if (!entries || !Array.isArray(entries)) {
+          console.error('❌ No entries array in scouting data:', data);
+          throw new Error('Scouting data must contain entries array');
         }
 
-        if (!data.entries) {
-          throw new Error('Scouting data missing entries property');
-        }
-
-        if (!Array.isArray(data.entries)) {
-          throw new Error('Scouting data entries is not an array');
-        }
-
-        if (data.entries.length === 0) {
+        if (entries.length === 0) {
           console.warn('⚠️ No scouting entries to import (empty array)');
           toast.info('No scouting data to import');
         } else {
-          console.log('🔄 Saving', data.entries.length, 'scouting entries...');
+          console.log('🔄 Saving', entries.length, 'scouting entries...');
 
           // Check if entries are valid
-          for (let i = 0; i < data.entries.length; i++) {
-            const entry = data.entries[i];
+          for (let i = 0; i < entries.length; i++) {
+            const entry = entries[i];
             if (!entry) {
               throw new Error(`Entry at index ${i} is null or undefined`);
             }
             if (!entry.id) {
               throw new Error(`Entry at index ${i} missing id: ${JSON.stringify(entry).substring(0, 100)}`);
             }
-            if (!entry.data) {
-              throw new Error(`Entry at index ${i} missing data property: ${JSON.stringify(entry).substring(0, 100)}`);
+            // maneuver-core uses gameData, not data
+            if (!entry.gameData) {
+              throw new Error(`Entry at index ${i} missing gameData property: ${JSON.stringify(entry).substring(0, 100)}`);
             }
           }
 
-          await saveScoutingEntries(data.entries);
-          importedCount = data.entries.length;
+          await saveScoutingEntries(entries);
+          importedCount = entries.length;
           console.log('✅ Imported', importedCount, 'scouting entries');
         }
 
       } else if (pushedDataType === 'pit-scouting') {
-        // Import pit scouting data
-        const data = pushedData as any;
-        if (data.entries) {
-          for (const entry of data.entries) {
+        // Import pit scouting data - wrapped format with entries
+        const data = pushedData as { entries?: any[]; version?: string; exportedAt?: number };
+        const entries = data.entries;
+
+        if (entries && Array.isArray(entries)) {
+          for (const entry of entries) {
             await pitDB.pitScoutingData.put(entry);
           }
-          importedCount = data.entries.length;
+          importedCount = entries.length;
           console.log('✅ Imported', importedCount, 'pit scouting entries');
         }
 
