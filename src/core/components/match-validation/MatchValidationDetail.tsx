@@ -117,12 +117,14 @@ export const MatchValidationDetail: React.FC<MatchValidationDetailProps> = ({
     <Sheet open={isOpen} onOpenChange={onClose}>
       <SheetContent side="right" className="w-full sm:max-w-3xl overflow-y-auto p-4">
         <SheetHeader className='pt-4 px-0 pb-0'>
-          <SheetTitle className="flex items-center gap-3 justify-between py-4">
+          <SheetTitle className="flex flex-col gap-3 py-4">
+            {/* Match title and status */}
             <div className="flex items-center gap-3">
               <span>{matchLabel}</span>
               <StatusBadge status={displayStatus} />
             </div>
-            <div className="flex items-center gap-2">
+            {/* Action buttons - stack on mobile */}
+            <div className="flex flex-wrap items-center gap-2">
               {getTBAMatchUrl() && (
                 <Button
                   variant="outline"

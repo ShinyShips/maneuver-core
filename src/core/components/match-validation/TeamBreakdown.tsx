@@ -30,20 +30,21 @@ export const TeamBreakdown: React.FC<TeamBreakdownProps> = ({
               key={team.teamNumber}
               className="border rounded-lg p-4 space-y-3"
             >
-              {/* Team Header */}
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
+              {/* Team Header - wraps to 2 lines on mobile */}
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                {/* Team info */}
+                <div className="flex items-center gap-3 min-w-0">
                   <Badge
                     variant="outline"
-                    className={team.alliance === 'red' ? 'bg-red-100 dark:bg-red-950' : 'bg-blue-100 dark:bg-blue-950'}
+                    className={`shrink-0 ${team.alliance === 'red' ? 'bg-red-100 dark:bg-red-950' : 'bg-blue-100 dark:bg-blue-950'}`}
                   >
                     {team.teamNumber}
                   </Badge>
-                  <div>
-                    <div className="text-sm font-medium flex items-center gap-2">
-                      {team.hasScoutedData ? team.scoutName : 'No Data'}
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium flex items-center gap-2 flex-wrap">
+                      <span className="truncate">{team.hasScoutedData ? team.scoutName : 'No Data'}</span>
                       {team.isCorrected && (
-                        <Badge variant="secondary" className="text-xs bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200">
+                        <Badge variant="secondary" className="text-xs bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200 shrink-0">
                           Corrected
                         </Badge>
                       )}
@@ -67,7 +68,8 @@ export const TeamBreakdown: React.FC<TeamBreakdownProps> = ({
                     )}
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                {/* Action buttons - wrap on mobile */}
+                <div className="flex items-center gap-2 flex-wrap shrink-0">
                   {team.flagForReview && (
                     <Badge variant="destructive" className="text-xs">
                       Review
