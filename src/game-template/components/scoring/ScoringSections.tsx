@@ -81,6 +81,11 @@ interface ScoringSectionsProps {
   phase: 'auto' | 'teleop';
   onAddAction: (action: any) => void; // Accepts action object
   actions: any[]; // Array of timestamped action objects
+  // Optional props for game-specific implementations
+  status?: any;
+  onStatusUpdate?: (updates: Partial<any>) => void;
+  onUndo?: () => void;
+  canUndo?: boolean;
 }
 
 /**
@@ -98,6 +103,15 @@ export function ScoringSections({
   phase,
   onAddAction,
   actions = [],
+  // Optional props - used by game-specific implementations
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  status: _status,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  onStatusUpdate: _onStatusUpdate,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  onUndo: _onUndo,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  canUndo: _canUndo,
 }: ScoringSectionsProps) {
   // Example: Count how many times each action has been performed
   // Teams can use this to display running totals or provide visual feedback
@@ -133,9 +147,9 @@ export function ScoringSections({
         <CardContent>
           <div className="grid grid-cols-2 gap-2">
             <Button
-              onClick={() => onAddAction({ 
+              onClick={() => onAddAction({
                 actionType: 'action1',
-                phase 
+                phase
               })}
               variant="outline"
               className="h-16 flex flex-col items-center justify-center gap-1"
@@ -146,9 +160,9 @@ export function ScoringSections({
               )}
             </Button>
             <Button
-              onClick={() => onAddAction({ 
+              onClick={() => onAddAction({
                 actionType: 'action2',
-                phase 
+                phase
               })}
               variant="outline"
               className="h-16 flex flex-col items-center justify-center gap-1"
@@ -173,9 +187,9 @@ export function ScoringSections({
         <CardContent>
           <div className="space-y-2">
             <Button
-              onClick={() => onAddAction({ 
+              onClick={() => onAddAction({
                 actionType: 'action3',
-                phase 
+                phase
               })}
               variant="outline"
               className="w-full h-12 flex items-center justify-between px-4"
@@ -188,9 +202,9 @@ export function ScoringSections({
               )}
             </Button>
             <Button
-              onClick={() => onAddAction({ 
+              onClick={() => onAddAction({
                 actionType: 'action4',
-                phase 
+                phase
               })}
               variant="outline"
               className="w-full h-12 flex items-center justify-between px-4"
@@ -217,9 +231,9 @@ export function ScoringSections({
           </CardHeader>
           <CardContent>
             <Button
-              onClick={() => onAddAction({ 
+              onClick={() => onAddAction({
                 actionType: 'teleopSpecial',
-                phase 
+                phase
               })}
               variant="outline"
               className="w-full"

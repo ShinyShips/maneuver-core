@@ -135,6 +135,10 @@ const AutoScoringPage = () => {
             phase="auto"
             onAddAction={addScoringAction}
             actions={scoringActions}
+            status={robotStatus}
+            onStatusUpdate={updateRobotStatus}
+            onUndo={undoLastAction}
+            canUndo={undoHistory.length > 0}
           />
 
           {/* Action Buttons - Mobile Only */}

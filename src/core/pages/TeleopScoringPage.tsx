@@ -139,6 +139,8 @@ const TeleopScoringPage = () => {
             phase="teleop"
             onAddAction={addScoringAction}
             actions={scoringActions}
+            onUndo={undoLastAction}
+            canUndo={undoHistory.length > 0}
           />
 
           {/* Action Buttons - Mobile Only */}
