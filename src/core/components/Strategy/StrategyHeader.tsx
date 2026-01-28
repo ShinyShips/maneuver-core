@@ -75,7 +75,7 @@ export const StrategyHeader = ({
                     <GenericSelector
                         label="Select Aggregation Type"
                         value={aggregationType}
-                        availableOptions={["average", "median", "max", "75th"]}
+                        availableOptions={["average", "median", "max", "min", "p75", "p25", "sum"]}
                         onValueChange={chartType === "box" ? () => { } : handleAggregationTypeChange}
                         placeholder="Aggregation type"
                         displayFormat={(val: string) => {
@@ -83,7 +83,10 @@ export const StrategyHeader = ({
                                 case "average": return "Average";
                                 case "median": return "Median";
                                 case "max": return "Max";
-                                case "75th": return "75th %";
+                                case "min": return "Min";
+                                case "p75": return "75th %";
+                                case "p25": return "25th %";
+                                case "sum": return "Sum";
                                 default: return val;
                             }
                         }}
