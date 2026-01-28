@@ -10,7 +10,7 @@
 
 import { useMemo } from "react";
 import { useAllTeamStats } from "./useAllTeamStats";
-import { StrategyConfig, ColumnFilter, TeamData } from "@/core/types/strategy";
+import { StrategyConfig, ColumnFilter, TeamData, AggregationType } from "@/core/types/strategy";
 
 export interface UseTeamStatisticsResult {
     teamStats: TeamData[];
@@ -22,7 +22,8 @@ export interface UseTeamStatisticsResult {
 export const useTeamStatistics = (
     eventKey: string | undefined,
     config: StrategyConfig,
-    columnFilters: Record<string, ColumnFilter>
+    columnFilters: Record<string, ColumnFilter>,
+    aggregationType: AggregationType = 'average'
 ): UseTeamStatisticsResult => {
     // Get centralized team stats
     const { teamStats: allTeamStats, isLoading, error } = useAllTeamStats(eventKey);
@@ -42,7 +43,7 @@ export const useTeamStatistics = (
                 if (["teamNumber", "eventKey", "matchCount"].includes(col.key)) return;
 
                 // Get value from stats using dot notation
-                const value = getValueByPath(stats, col.key);
+                const value = getValueByPath(stats, col.key, aggregationType);
                 if (value !== undefined) {
                     teamData[col.key] = value;
                 }
@@ -50,7 +51,7 @@ export const useTeamStatistics = (
 
             return teamData;
         });
-    }, [allTeamStats, config.columns]);
+    }, [allTeamStats, config.columns, aggregationType]);
 
     // Apply column filters
     const filteredTeamStats = useMemo(() => {
@@ -83,17 +84,64 @@ export const useTeamStatistics = (
 
 /**
  * Helper to get nested value from object using dot notation
+ * If the value is an array (like rawValues), aggregate it based on the aggregationType
  */
-function getValueByPath(obj: any, path: string): any {
+function getValueByPath(obj: any, path: string, aggregationType: AggregationType = 'average'): any {
     if (!obj) return undefined;
 
     // Direct match
-    if (obj[path] !== undefined) return obj[path];
+    if (obj[path] !== undefined) {
+        const value = obj[path];
+        return Array.isArray(value) ? aggregateArray(value, aggregationType) : value;
+    }
 
     // Dot notation
     if (path.includes('.')) {
-        return path.split('.').reduce((o, key) => o?.[key], obj);
+        const value = path.split('.').reduce((o, key) => o?.[key], obj);
+        return Array.isArray(value) ? aggregateArray(value, aggregationType) : value;
     }
 
     return undefined;
+}
+
+/**
+ * Aggregate an array of numbers based on aggregation type
+ */
+function aggregateArray(values: number[], type: AggregationType): number {
+    if (values.length === 0) return 0;
+
+    switch (type) {
+        case 'average': {
+            const sum = values.reduce((acc, val) => acc + val, 0);
+            return sum / values.length;
+        }
+        case 'max': {
+            return Math.max(...values);
+        }
+        case 'min': {
+            return Math.min(...values);
+        }
+        case 'p75': {
+            const sorted = [...values].sort((a, b) => a - b);
+            const index = Math.ceil(sorted.length * 0.75) - 1;
+            return sorted[index] ?? 0;
+        }
+        case 'p25': {
+            const sorted = [...values].sort((a, b) => a - b);
+            const index = Math.ceil(sorted.length * 0.25) - 1;
+            return sorted[index] ?? 0;
+        }
+        case 'median': {
+            const sorted = [...values].sort((a, b) => a - b);
+            const mid = Math.floor(sorted.length / 2);
+            return sorted.length % 2 === 0
+                ? ((sorted[mid - 1] ?? 0) + (sorted[mid] ?? 0)) / 2
+                : sorted[mid] ?? 0;
+        }
+        case 'sum': {
+            return values.reduce((acc, val) => acc + val, 0);
+        }
+        default:
+            return 0;
+    }
 }

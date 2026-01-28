@@ -1,6 +1,6 @@
 import { Binoculars, ChevronRight, Home, type LucideIcon } from "lucide-react"
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import {
   Collapsible,
   CollapsibleContent,
@@ -28,6 +28,7 @@ import {
 import { convertTeamRole } from "@/core/lib/utils";
 import { useNavigationConfirm } from "@/core/hooks/useNavigationConfirm";
 import { NavigationConfirmDialog } from "@/core/components/NavigationConfirmDialog";
+import { useScout } from "@/core/contexts/ScoutContext";
 
 
 export function NavMain({
@@ -45,11 +46,10 @@ export function NavMain({
   }[]
 }) {
 
-  const [selected, setSelected] = useState<string | null>(localStorage.getItem("playerStation"));
+  const { playerStation, setPlayerStation } = useScout();
 
   const handlePlayerStationChange = (value: string) => {
-    setSelected(value);
-    localStorage.setItem("playerStation", value);
+    setPlayerStation(value);
   };
 
   const { isMobile, setOpenMobile } = useSidebar();
@@ -97,13 +97,13 @@ export function NavMain({
   };
 
   useEffect(() => {
-    if (selected) {
-      const element = document.getElementById(selected.toLowerCase().replace(" ", ""));
+    if (playerStation) {
+      const element = document.getElementById(playerStation.toLowerCase().replace(" ", ""));
       if (element) {
         (element as HTMLInputElement).checked = true;
       }
     }
-  }, [selected]);
+  }, [playerStation]);
 
   return (
     <>
@@ -111,10 +111,11 @@ export function NavMain({
         <SidebarMenuItem className="flex items-center pb-4">
           <div className="flex w-full gap-2">
             <Select
+              value={playerStation}
               onValueChange={handlePlayerStationChange}
             >
               <SelectTrigger className="w-full h-12 text-lg font-bold" id="scoutRole" aria-label="Scout Role">
-                <SelectValue placeholder={convertTeamRole(selected) || "Role"} />
+                <SelectValue placeholder={convertTeamRole(playerStation) || "Role"} />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem className="text-lg" value="lead">Lead</SelectItem>

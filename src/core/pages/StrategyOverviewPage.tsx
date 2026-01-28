@@ -95,7 +95,8 @@ export default function StrategyOverviewPage() {
     const { teamStats, filteredTeamStats, isLoading, error } = useTeamStatistics(
         selectedEvent === "all" ? undefined : selectedEvent,
         { ...strategyConfig, columns: columnConfig },
-        columnFilters
+        columnFilters,
+        aggregationType
     );
 
     // Prepare chart data using generic hook
@@ -157,7 +158,7 @@ export default function StrategyOverviewPage() {
 
     if (isLoading) {
         return (
-            <div className="flex flex-col min-h-screen gap-6 p-4 md:p-8">
+            <div className="flex flex-col min-h-screen gap-6 p-4">
                 <div className="flex flex-col gap-4">
                     <div className="flex items-center justify-between">
                         <Skeleton className="h-10 w-64" />
@@ -179,7 +180,7 @@ export default function StrategyOverviewPage() {
     }
 
     return (
-        <div className="flex flex-col min-h-screen gap-6 px-4 pt-12 pb-24 md:p-8">
+        <div className="flex flex-col min-h-screen gap-6 px-4 pt-12 pb-24">
             <StrategyHeader
                 filteredTeamCount={filteredTeamStats.length}
                 totalTeamCount={teamStats.length}

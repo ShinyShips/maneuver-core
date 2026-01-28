@@ -70,6 +70,12 @@ const FieldCanvas = ({
         }
     }, [stageId, isFullscreen]);
 
+    // Reset canvas dimensions when transitioning between fullscreen modes
+    // This prevents overflow when exiting fullscreen before setupCanvas recalculates
+    useEffect(() => {
+        setCanvasDimensions({ width: 0, height: 0 });
+    }, [isFullscreen]);
+
     // Canvas ready state for undo history
     const [canvasReady, setCanvasReady] = useState(false);
     const handleCanvasReady = useCallback(() => {
@@ -226,8 +232,8 @@ const FieldCanvas = ({
     const hasValidDimensions = canvasDimensions.width > 0 && canvasDimensions.height > 0;
     const canvasContainerStyle: React.CSSProperties = {
         position: 'relative',
-        width: hasValidDimensions ? canvasDimensions.width : 'auto',
-        height: hasValidDimensions ? canvasDimensions.height : 'auto',
+        width: hasValidDimensions ? `${canvasDimensions.width}px` : 'auto',
+        height: hasValidDimensions ? `${canvasDimensions.height}px` : 'auto',
         maxWidth: '100%',
         maxHeight: '100%'
     };
@@ -242,12 +248,13 @@ const FieldCanvas = ({
 
     // Render stacked canvases
     const renderCanvasStack = () => (
-        <div style={canvasContainerStyle} className="border border-gray-300 rounded-lg shadow-lg overflow-hidden">
-            {/* Layer 1: Background (field image) - dimensions set by hook */}
-            <canvas
-                ref={backgroundCanvasRef}
-                style={layerStyle}
-            />
+        <div className="w-full h-full min-h-0 flex items-center justify-center">
+            <div style={canvasContainerStyle} className="border border-gray-300 rounded-lg shadow-lg overflow-hidden max-w-full max-h-full">
+                {/* Layer 1: Background (field image) - dimensions set by hook */}
+                <canvas
+                    ref={backgroundCanvasRef}
+                    style={layerStyle}
+                />
             {/* Layer 2: Overlays (team numbers) - dimensions set by hook */}
             <canvas
                 ref={overlayCanvasRef}
@@ -264,6 +271,7 @@ const FieldCanvas = ({
                 }}
                 {...canvasEventHandlers}
             />
+            </div>
         </div>
     );
 

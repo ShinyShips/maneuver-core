@@ -5,8 +5,10 @@ interface ScoutContextType {
   currentScout: string;
   currentScoutStakes: number;
   scoutsList: string[];
+  playerStation: string;
   isLoading: boolean;
   setCurrentScout: (name: string) => Promise<void>;
+  setPlayerStation: (station: string) => void;
   addScout: (name: string) => Promise<void>;
   removeScout: (name: string) => Promise<void>;
   refreshScout: () => Promise<void>;
@@ -30,6 +32,7 @@ export const ScoutProvider: React.FC<ScoutProviderProps> = ({ children }) => {
   const [currentScout, setCurrentScoutState] = useState<string>('');
   const [currentScoutStakes, setCurrentScoutStakes] = useState<number>(0);
   const [scoutsList, setScoutsList] = useState<string[]>([]);
+  const [playerStation, setPlayerStationState] = useState<string>('');
   const [isLoading, setIsLoading] = useState(true);
 
   // Load initial data from localStorage
@@ -53,6 +56,12 @@ export const ScoutProvider: React.FC<ScoutProviderProps> = ({ children }) => {
           console.error('Error loading scout stakes:', error);
           setCurrentScoutStakes(0);
         }
+      }
+
+      // Load player station
+      const savedPlayerStation = localStorage.getItem('playerStation');
+      if (savedPlayerStation) {
+        setPlayerStationState(savedPlayerStation);
       }
     } catch (error) {
       console.error('Error loading scouts:', error);
@@ -137,6 +146,12 @@ export const ScoutProvider: React.FC<ScoutProviderProps> = ({ children }) => {
     }
   }, [scoutsList, currentScout]);
 
+  // Set player station
+  const setPlayerStation = useCallback((station: string) => {
+    setPlayerStationState(station);
+    localStorage.setItem('playerStation', station);
+  }, []);
+
   // Refresh current scout data
   const refreshScout = useCallback(async () => {
     if (!currentScout) return;
@@ -168,14 +183,22 @@ export const ScoutProvider: React.FC<ScoutProviderProps> = ({ children }) => {
       setCurrentScoutState('');
       setCurrentScoutStakes(0);
       setScoutsList([]);
+      setPlayerStationState('');
+    };
+
+    const handlePlayerStationChanged = () => {
+      const newStation = localStorage.getItem('playerStation') || '';
+      setPlayerStationState(newStation);
     };
 
     window.addEventListener('scoutChanged', handleScoutChanged);
     window.addEventListener('scoutDataCleared', handleScoutDataCleared);
+    window.addEventListener('playerStationChanged', handlePlayerStationChanged);
     
     return () => {
       window.removeEventListener('scoutChanged', handleScoutChanged);
       window.removeEventListener('scoutDataCleared', handleScoutDataCleared);
+      window.removeEventListener('playerStationChanged', handlePlayerStationChanged);
     };
   }, [loadScouts]);
 
@@ -183,8 +206,10 @@ export const ScoutProvider: React.FC<ScoutProviderProps> = ({ children }) => {
     currentScout,
     currentScoutStakes,
     scoutsList,
+    playerStation,
     isLoading,
     setCurrentScout,
+    setPlayerStation,
     addScout,
     removeScout,
     refreshScout,

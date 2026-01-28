@@ -48,18 +48,14 @@ export const useChartData = (
             return boxData;
         }
         else if (chartType === "stacked") {
-            // Stacked bar logic. 
-            // We assume "Auto", "Teleop", "Endgame" phases exist if we want to Stack them.
-            // Ideally this should be config driven, but for now we map standard phases.
-            // We look for columns ending in 'Points' usually, or specifically defined ones.
-
-            // To be truly year agnostic, we should probably check if 'autoPoints', 'teleopPoints', 'endgamePoints' exist in the data.
-            // If they do, we use them.
-
+            // Stacked bar logic for phase breakdown
+            // Access the rawValues arrays that have already been aggregated by useTeamStatistics
+            
             return filteredTeamStats.map(team => {
-                const auto = (team['autoPoints'] as number) || 0;
-                const teleop = (team['teleopPoints'] as number) || 0;
-                const endgame = (team['endgamePoints'] as number) || 0;
+                // Try to get the already-aggregated values first, or fall back to direct access
+                const auto = (team['rawValues.autoPoints'] as number) || (team['autoPoints'] as number) || 0;
+                const teleop = (team['rawValues.teleopPoints'] as number) || (team['teleopPoints'] as number) || 0;
+                const endgame = (team['rawValues.endgamePoints'] as number) || (team['endgamePoints'] as number) || 0;
 
                 return {
                     team: String(team.teamNumber),

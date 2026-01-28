@@ -180,7 +180,7 @@ export interface Leaderboard {
 // TEAM PERFORMANCE & STRATEGY ANALYSIS TYPES
 // ==============================================================================
 
-export type AggregationType = "average" | "median" | "max" | "75th";
+export type AggregationType = "average" | "median" | "max" | "min" | "p75" | "p25" | "sum";
 export type FilterOperator = ">" | ">=" | "<" | "<=" | "=" | "!=" | "between";
 
 export interface ColumnFilter {

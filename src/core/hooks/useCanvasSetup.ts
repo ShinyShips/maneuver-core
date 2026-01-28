@@ -50,6 +50,9 @@ export const useCanvasSetup = ({
       clearTimeout(setupTimeoutRef.current);
     }
 
+    // Use longer delay when transitioning out of fullscreen to let DOM settle
+    const delay = 50;
+
     setupTimeoutRef.current = setTimeout(() => {
       const bgCanvas = backgroundCanvasRef.current;
       const overlayCanvas = overlayCanvasRef.current;
@@ -154,7 +157,7 @@ export const useCanvasSetup = ({
         }
       };
       img.src = fieldImagePath;
-    }, 50);
+    }, delay);
   }, [fieldImagePath, currentStageId, isFullscreen, hideControls, isMobile, backgroundCanvasRef, overlayCanvasRef, drawingCanvasRef, containerRef, fullscreenRef, onCanvasReady, onDimensionsChange, selectedTeams]);
 
   // Re-draw overlay when teams change
@@ -170,8 +173,16 @@ export const useCanvasSetup = ({
 
   useEffect(() => {
     setupCanvas();
+    
+    // Extra recalculation after exiting fullscreen to ensure container dimensions are correct
+    if (!isFullscreen) {
+      const timer = setTimeout(() => setupCanvas(), 200);
+      return () => clearTimeout(timer);
+    }
 
     const handleResize = () => {
+      // Only recalculate on resize when IN fullscreen mode
+      // When exiting fullscreen, the setupCanvas() call from isFullscreen change is sufficient
       if (isFullscreen) {
         setupCanvas();
       }

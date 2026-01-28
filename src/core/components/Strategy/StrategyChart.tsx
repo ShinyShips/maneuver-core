@@ -153,7 +153,9 @@ export const StrategyChart = ({
                                 <GenericSelector
                                     label="Select X-Axis Metric"
                                     value={scatterXMetric}
-                                    availableOptions={columnConfig.filter(col => col.numeric || col.key === 'teamNumber').map(col => col.key)}
+                                    availableOptions={columnConfig.filter(col => 
+                                        col.numeric && col.key !== 'eventKey'
+                                    ).map(col => col.key)}
                                     onValueChange={onScatterXMetricChange}
                                     placeholder="X-Axis"
                                     displayFormat={(key: string) => columnConfig.find(col => col.key === key)?.label || key}
@@ -165,7 +167,9 @@ export const StrategyChart = ({
                                 <GenericSelector
                                     label="Select Y-Axis Metric"
                                     value={scatterYMetric}
-                                    availableOptions={columnConfig.filter(col => col.numeric || col.key === 'teamNumber').map(col => col.key)}
+                                    availableOptions={columnConfig.filter(col => 
+                                        col.numeric && col.key !== 'eventKey'
+                                    ).map(col => col.key)}
                                     onValueChange={onScatterYMetricChange}
                                     placeholder="Y-Axis"
                                     displayFormat={(key: string) => columnConfig.find(col => col.key === key)?.label || key}
@@ -184,7 +188,9 @@ export const StrategyChart = ({
                                     <GenericSelector
                                         label="Select Metric"
                                         value={chartMetric}
-                                        availableOptions={columnConfig.filter(col => col.numeric || col.key === 'teamNumber').map(col => col.key)}
+                                        availableOptions={columnConfig.filter(col => 
+                                            col.numeric && !['teamNumber', 'eventKey', 'matchCount'].includes(col.key)
+                                        ).map(col => col.key)}
                                         onValueChange={onChartMetricChange}
                                         placeholder="Select metric"
                                         displayFormat={(key: string) => columnConfig.find(col => col.key === key)?.label || key}
