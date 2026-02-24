@@ -157,10 +157,26 @@ export const usePickList = (eventKey?: string): UsePickListResult => {
         });
     }, []);
 
+    const allianceAssignedTeams = useMemo(() => {
+        const assigned = new Set<number>();
+
+        alliances.forEach((alliance) => {
+            if (alliance.captain) assigned.add(alliance.captain);
+            if (alliance.pick1) assigned.add(alliance.pick1);
+            if (alliance.pick2) assigned.add(alliance.pick2);
+            if (alliance.pick3) assigned.add(alliance.pick3);
+        });
+
+        return assigned;
+    }, [alliances]);
+
     // Filtered and sorted teams
     const filteredAndSortedTeams = useMemo(() => {
-        return sortTeams(filterTeams(teamStats, searchFilter), sortBy);
-    }, [teamStats, searchFilter, sortBy, sortTeams]);
+        const filtered = filterTeams(teamStats, searchFilter)
+            .filter((team) => !allianceAssignedTeams.has(team.teamNumber));
+
+        return sortTeams(filtered, sortBy);
+    }, [teamStats, searchFilter, sortBy, sortTeams, allianceAssignedTeams]);
 
     // Add team to a pick list
     const addTeamToList = useCallback((team: TeamStats, listId: number) => {
@@ -303,6 +319,11 @@ export const usePickList = (eventKey?: string): UsePickListResult => {
         setAlliances(prev => prev.map(a =>
             a.id === allianceId ? { ...a, [position]: teamNumber } : a
         ));
+
+        setPickLists(prev => prev.map(list => ({
+            ...list,
+            teams: list.teams.filter(team => team.teamNumber !== teamNumber),
+        })));
 
         const positionNames: Record<Position, string> = {
             captain: 'Captain',

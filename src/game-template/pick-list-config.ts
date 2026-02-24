@@ -57,6 +57,13 @@ export function getSortValue(team: TeamStats, sortOption: PickListSortOption): n
         }
     }
 
+    if (Array.isArray(value)) {
+        const numericValues = value.filter((item): item is number => typeof item === "number");
+        if (numericValues.length === 0) return 0;
+        const total = numericValues.reduce((sum, item) => sum + item, 0);
+        return total / numericValues.length;
+    }
+
     // Return numeric value or 0
     return typeof value === "number" ? value : 0;
 }
