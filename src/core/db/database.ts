@@ -208,7 +208,10 @@ export const updateScoutingEntryIgnoreForStats = async (
   id: string,
   ignoreForStats: boolean
 ): Promise<void> => {
-  await db.scoutingData.update(id, { ignoreForStats });
+  const updatedCount = await db.scoutingData.update(id, { ignoreForStats });
+  if (updatedCount === 0) {
+    throw new Error(`Scouting entry not found: ${id}`);
+  }
 };
 
 /**

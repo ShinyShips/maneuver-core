@@ -83,33 +83,38 @@ const ClearDataPage = () => {
   }, []);
 
   const refreshEventKeys = useCallback(async () => {
-    const [scoutingEventKeys, pitEventKeys, predictionEventKeys] = await Promise.all([
-      db.scoutingData.orderBy('eventKey').uniqueKeys(),
-      pitDB.pitScoutingData.orderBy('eventKey').uniqueKeys(),
-      gameDB.predictions.orderBy('eventKey').uniqueKeys(),
-    ]);
+    try {
+      const [scoutingEventKeys, pitEventKeys, predictionEventKeys] = await Promise.all([
+        db.scoutingData.orderBy('eventKey').uniqueKeys(),
+        pitDB.pitScoutingData.orderBy('eventKey').uniqueKeys(),
+        gameDB.predictions.orderBy('eventKey').uniqueKeys(),
+      ]);
 
-    const allKeys = new Set<string>([...getEventKeysFromStorage()]);
+      const allKeys = new Set<string>([...getEventKeysFromStorage()]);
 
-    scoutingEventKeys.forEach(key => {
-      if (typeof key === 'string' && key.trim()) {
-        allKeys.add(key.trim());
-      }
-    });
+      scoutingEventKeys.forEach(key => {
+        if (typeof key === 'string' && key.trim()) {
+          allKeys.add(key.trim());
+        }
+      });
 
-    pitEventKeys.forEach(key => {
-      if (typeof key === 'string' && key.trim()) {
-        allKeys.add(key.trim());
-      }
-    });
+      pitEventKeys.forEach(key => {
+        if (typeof key === 'string' && key.trim()) {
+          allKeys.add(key.trim());
+        }
+      });
 
-    predictionEventKeys.forEach(key => {
-      if (typeof key === 'string' && key.trim()) {
-        allKeys.add(key.trim());
-      }
-    });
+      predictionEventKeys.forEach(key => {
+        if (typeof key === 'string' && key.trim()) {
+          allKeys.add(key.trim());
+        }
+      });
 
-    setEventKeys(Array.from(allKeys));
+      setEventKeys(Array.from(allKeys));
+    } catch (error) {
+      console.error('Failed to refresh event keys:', error);
+      setEventKeys(Array.from(getEventKeysFromStorage()));
+    }
   }, [getEventKeysFromStorage]);
 
   useEffect(() => {

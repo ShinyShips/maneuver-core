@@ -432,7 +432,7 @@ export function MatchStatsDialog({
                                                     checked={ignoreForStats}
                                                     disabled={!matchData.id || isSavingIgnore || isDeleting}
                                                     onCheckedChange={(value) => {
-                                                        void handleIgnoreToggle(Boolean(value));
+                                                        void handleIgnoreToggle(value === true);
                                                     }}
                                                 />
                                                 <Label htmlFor={`ignore-${matchData.id ?? matchData.matchNumber ?? 'match'}`}>
