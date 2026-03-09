@@ -124,13 +124,15 @@ export function WebRTCPushedDataDialog() {
         // Import scout profiles
         if (data.scoutProfiles) {
           if (data.scoutProfiles.scouts && Array.isArray(data.scoutProfiles.scouts)) {
+            let importedScoutCount = 0;
             for (const scout of data.scoutProfiles.scouts) {
               const normalizedScout = normalizeTransferredScoutProfile(scout);
               if (!normalizedScout) continue;
               await gameDB.scouts.put(normalizedScout as never);
+              importedScoutCount += 1;
             }
-            importedCount += data.scoutProfiles.scouts.length;
-            console.log('✅ Imported', data.scoutProfiles.scouts.length, 'scout profiles');
+            importedCount += importedScoutCount;
+            console.log('✅ Imported', importedScoutCount, 'scout profiles');
           }
 
           // Import predictions
@@ -231,12 +233,14 @@ export function WebRTCPushedDataDialog() {
         // Import scout profile data
         const data = pushedData as any;
         if (data.scouts && Array.isArray(data.scouts)) {
+          let importedScoutCount = 0;
           for (const scout of data.scouts) {
             const normalizedScout = normalizeTransferredScoutProfile(scout);
             if (!normalizedScout) continue;
             await gameDB.scouts.put(normalizedScout as never);
+            importedScoutCount += 1;
           }
-          importedCount = data.scouts.length;
+          importedCount = importedScoutCount;
           console.log('✅ Imported', importedCount, 'scout profiles');
         }
         if (data.predictions && Array.isArray(data.predictions)) {

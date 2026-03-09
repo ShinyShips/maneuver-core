@@ -181,30 +181,20 @@ export const useDataCleaning = (
     }
 
     try {
-      const [scoutingEntries, pitEntries, predictions] = await Promise.all([
-        db.scoutingData.toArray(),
-        pitDB.pitScoutingData.toArray(),
-        gameDB.predictions.toArray(),
+      const scoutingCollection = db.scoutingData.where('eventKey').equalsIgnoreCase(normalizedEventKey);
+      const pitCollection = pitDB.pitScoutingData.where('eventKey').equalsIgnoreCase(normalizedEventKey);
+      const predictionCollection = gameDB.predictions.where('eventKey').equalsIgnoreCase(normalizedEventKey);
+
+      const [scoutingCount, pitCount, predictionCount] = await Promise.all([
+        scoutingCollection.count(),
+        pitCollection.count(),
+        predictionCollection.count(),
       ]);
 
-      const eventMatches = (value: string) => value.trim().toLowerCase() === normalizedEventKey.toLowerCase();
-
-      const scoutingIds = scoutingEntries
-        .filter(entry => eventMatches(entry.eventKey || ''))
-        .map(entry => entry.id);
-
-      const pitIds = pitEntries
-        .filter(entry => eventMatches(entry.eventKey || ''))
-        .map(entry => entry.id);
-
-      const predictionIds = predictions
-        .filter(prediction => eventMatches(prediction.eventKey || ''))
-        .map(prediction => prediction.id);
-
       await Promise.all([
-        scoutingIds.length > 0 ? db.scoutingData.bulkDelete(scoutingIds) : Promise.resolve(),
-        pitIds.length > 0 ? pitDB.pitScoutingData.bulkDelete(pitIds) : Promise.resolve(),
-        predictionIds.length > 0 ? gameDB.predictions.bulkDelete(predictionIds) : Promise.resolve(),
+        scoutingCount > 0 ? db.scoutingData.where('eventKey').equalsIgnoreCase(normalizedEventKey).delete() : Promise.resolve(),
+        pitCount > 0 ? pitDB.pitScoutingData.where('eventKey').equalsIgnoreCase(normalizedEventKey).delete() : Promise.resolve(),
+        predictionCount > 0 ? gameDB.predictions.where('eventKey').equalsIgnoreCase(normalizedEventKey).delete() : Promise.resolve(),
       ]);
 
       await Promise.all([
@@ -217,7 +207,7 @@ export const useDataCleaning = (
       await refreshData();
       window.dispatchEvent(new Event('dataChanged'));
 
-      const deletedEntryCount = scoutingIds.length + pitIds.length + predictionIds.length;
+      const deletedEntryCount = scoutingCount + pitCount + predictionCount;
       toast.success(`Cleared event data for ${normalizedEventKey}`, {
         description: `Deleted ${deletedEntryCount} scouting/pit/prediction entries and related cached data.`
       });

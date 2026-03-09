@@ -75,6 +75,10 @@ export const handleScoutProfilesUpload = async (jsonData: unknown, mode: UploadM
             if (shouldUpdate) {
               await gameDB.scouts.update(scout.name, {
                 stakes: Math.max(scout.stakes, existing.stakes),
+                stakesFromPredictions: Math.max(
+                  typeof scout.stakesFromPredictions === 'number' ? scout.stakesFromPredictions : 0,
+                  typeof existing.stakesFromPredictions === 'number' ? existing.stakesFromPredictions : 0
+                ),
                 totalPredictions: Math.max(scout.totalPredictions, existing.totalPredictions),
                 correctPredictions: Math.max(scout.correctPredictions, existing.correctPredictions),
                 currentStreak: scout.lastUpdated > existing.lastUpdated ? scout.currentStreak : existing.currentStreak,
