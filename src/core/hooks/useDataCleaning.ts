@@ -1,15 +1,86 @@
 import { useCallback } from "react";
 import { toast } from "sonner";
-import { clearAllScoutingData } from "@/core/db/database";
+import { clearAllScoutingData, db, pitDB } from "@/core/db/database";
 import { clearGamificationData as clearGameData } from "@/game-template/gamification";
+import { gamificationDB as gameDB } from "@/game-template/gamification";
 import { clearAllPitScoutingData } from "@/core/lib/pitScoutingUtils";
 import { clearAllTBACache } from "@/core/lib/tbaCache";
+import { clearEventCache, clearEventValidationResults } from "@/core/lib/tbaCache";
+import { clearStoredEventTeams, clearStoredNexusData } from "@/core/lib/tba";
 
 export const useDataCleaning = (
   refreshData: () => Promise<void>,
   resetStats: () => void,
   updateMatchData?: (matchData: string | null) => void
 ) => {
+  const removeEventFromArrayStorage = useCallback((storageKey: string, eventKey: string) => {
+    const raw = localStorage.getItem(storageKey);
+    if (!raw) return;
+
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return;
+
+      const filtered = parsed.filter(item => {
+        if (typeof item === 'string') {
+          return item.trim().toLowerCase() !== eventKey.toLowerCase();
+        }
+
+        if (
+          typeof item === 'object' &&
+          item !== null &&
+          'eventKey' in item &&
+          typeof (item as { eventKey: unknown }).eventKey === 'string'
+        ) {
+          return (item as { eventKey: string }).eventKey.trim().toLowerCase() !== eventKey.toLowerCase();
+        }
+
+        return true;
+      });
+
+      localStorage.setItem(storageKey, JSON.stringify(filtered));
+    } catch (error) {
+      console.warn(`Failed to update ${storageKey} while clearing event data`, error);
+    }
+  }, []);
+
+  const clearEventLocalStorageData = useCallback((eventKey: string) => {
+    const normalizedEventKey = eventKey.trim();
+    if (!normalizedEventKey) return;
+
+    clearStoredEventTeams(normalizedEventKey);
+    clearStoredNexusData(normalizedEventKey);
+
+    const directKeys = [
+      `matches_${normalizedEventKey}`,
+      `match_results_${normalizedEventKey}`,
+      `event_info_${normalizedEventKey}`,
+      `pit_assignments_${normalizedEventKey}`,
+      `pit_assignments_meta_${normalizedEventKey}`,
+      `pit_assignments_mine_${normalizedEventKey}`,
+      `tba_match_schedule_${normalizedEventKey}`,
+      `tba_match_data_${normalizedEventKey}`,
+      `matchResults_${normalizedEventKey}`,
+      `stakesAwarded_${normalizedEventKey}`,
+    ];
+
+    directKeys.forEach(key => localStorage.removeItem(key));
+
+    removeEventFromArrayStorage('eventsList', normalizedEventKey);
+    removeEventFromArrayStorage('customEventsList', normalizedEventKey);
+    removeEventFromArrayStorage('event_history', normalizedEventKey);
+
+    const currentEventKey = localStorage.getItem('eventKey');
+    if (currentEventKey && currentEventKey.trim().toLowerCase() === normalizedEventKey.toLowerCase()) {
+      localStorage.removeItem('eventKey');
+      localStorage.removeItem('current_event');
+      localStorage.removeItem('matchData');
+      if (updateMatchData) {
+        updateMatchData(null);
+      }
+    }
+  }, [removeEventFromArrayStorage, updateMatchData]);
+
   const handleClearScoutingData = useCallback(async () => {
     try {
       await clearAllScoutingData();
@@ -102,6 +173,60 @@ export const useDataCleaning = (
     }
   }, [refreshData]);
 
+  const handleClearEventData = useCallback(async (eventKey: string) => {
+    const normalizedEventKey = eventKey.trim();
+    if (!normalizedEventKey) {
+      toast.error('Please select an event to delete');
+      return;
+    }
+
+    try {
+      const [scoutingEntries, pitEntries, predictions] = await Promise.all([
+        db.scoutingData.toArray(),
+        pitDB.pitScoutingData.toArray(),
+        gameDB.predictions.toArray(),
+      ]);
+
+      const eventMatches = (value: string) => value.trim().toLowerCase() === normalizedEventKey.toLowerCase();
+
+      const scoutingIds = scoutingEntries
+        .filter(entry => eventMatches(entry.eventKey || ''))
+        .map(entry => entry.id);
+
+      const pitIds = pitEntries
+        .filter(entry => eventMatches(entry.eventKey || ''))
+        .map(entry => entry.id);
+
+      const predictionIds = predictions
+        .filter(prediction => eventMatches(prediction.eventKey || ''))
+        .map(prediction => prediction.id);
+
+      await Promise.all([
+        scoutingIds.length > 0 ? db.scoutingData.bulkDelete(scoutingIds) : Promise.resolve(),
+        pitIds.length > 0 ? pitDB.pitScoutingData.bulkDelete(pitIds) : Promise.resolve(),
+        predictionIds.length > 0 ? gameDB.predictions.bulkDelete(predictionIds) : Promise.resolve(),
+      ]);
+
+      await Promise.all([
+        clearEventCache(normalizedEventKey),
+        clearEventValidationResults(normalizedEventKey),
+      ]);
+
+      clearEventLocalStorageData(normalizedEventKey);
+
+      await refreshData();
+      window.dispatchEvent(new Event('dataChanged'));
+
+      const deletedEntryCount = scoutingIds.length + pitIds.length + predictionIds.length;
+      toast.success(`Cleared event data for ${normalizedEventKey}`, {
+        description: `Deleted ${deletedEntryCount} scouting/pit/prediction entries and related cached data.`
+      });
+    } catch (error) {
+      console.error('Error clearing event data:', error);
+      toast.error(`Failed to clear event data for ${normalizedEventKey}`);
+    }
+  }, [clearEventLocalStorageData, refreshData]);
+
   const handleClearAllData = useCallback(async () => {
     try {
       console.log("localStorage before clearing:", Object.keys(localStorage));
@@ -137,6 +262,7 @@ export const useDataCleaning = (
     handleClearScoutGameData,
     handleClearMatchData,
     handleClearApiData,
+    handleClearEventData,
     handleClearAllData,
   };
 };
