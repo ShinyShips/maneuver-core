@@ -262,9 +262,14 @@ export const getPredictionForMatch = async (
     eventKey: string,
     matchNumber: number
 ): Promise<MatchPrediction | undefined> => {
+    const normalizedScoutName = normalizeScoutKey(scoutName);
+    if (!normalizedScoutName) {
+        return undefined;
+    }
+
     return await gamificationDB.predictions
         .where('[scoutName+eventKey+matchNumber]')
-        .equals([scoutName, eventKey, matchNumber])
+        .equals([normalizedScoutName, eventKey, matchNumber])
         .first();
 };
 
@@ -272,9 +277,14 @@ export const getPredictionForMatch = async (
  * Get all predictions for a scout
  */
 export const getAllPredictionsForScout = async (scoutName: string): Promise<MatchPrediction[]> => {
+    const normalizedScoutName = normalizeScoutKey(scoutName);
+    if (!normalizedScoutName) {
+        return [];
+    }
+
     return await gamificationDB.predictions
         .where('scoutName')
-        .equals(scoutName)
+        .equals(normalizedScoutName)
         .reverse()
         .toArray();
 };
@@ -311,15 +321,20 @@ export const unlockAchievement = async (
     scoutName: string,
     achievementId: string
 ): Promise<void> => {
+    const normalizedScoutName = normalizeScoutKey(scoutName);
+    if (!normalizedScoutName) {
+        return;
+    }
+
     const existing = await gamificationDB.scoutAchievements
         .where('[scoutName+achievementId]')
-        .equals([scoutName, achievementId])
+        .equals([normalizedScoutName, achievementId])
         .first();
 
     if (!existing) {
         await gamificationDB.scoutAchievements.put({
-            id: `${scoutName}_${achievementId}_${Date.now()}`,
-            scoutName,
+            id: `${normalizedScoutName}_${achievementId}_${Date.now()}`,
+            scoutName: normalizedScoutName,
             achievementId,
             unlockedAt: Date.now(),
         });
@@ -330,7 +345,15 @@ export const unlockAchievement = async (
  * Get all achievements for scout
  */
 export const getScoutAchievements = async (scoutName: string): Promise<ScoutAchievement[]> => {
-    return await gamificationDB.scoutAchievements.where('scoutName').equals(scoutName).toArray();
+    const normalizedScoutName = normalizeScoutKey(scoutName);
+    if (!normalizedScoutName) {
+        return [];
+    }
+
+    return await gamificationDB.scoutAchievements
+        .where('scoutName')
+        .equals(normalizedScoutName)
+        .toArray();
 };
 
 /**
@@ -340,9 +363,14 @@ export const hasAchievement = async (
     scoutName: string,
     achievementId: string
 ): Promise<boolean> => {
+    const normalizedScoutName = normalizeScoutKey(scoutName);
+    if (!normalizedScoutName) {
+        return false;
+    }
+
     const achievement = await gamificationDB.scoutAchievements
         .where('[scoutName+achievementId]')
-        .equals([scoutName, achievementId])
+        .equals([normalizedScoutName, achievementId])
         .first();
     return !!achievement;
 };
