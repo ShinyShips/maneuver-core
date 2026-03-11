@@ -136,7 +136,7 @@ export const GenericSelector = (props: GenericSelectorProps) => {
             <ChevronDownIcon className="h-4 w-4 opacity-50" />
           </Button>
         </PopoverTrigger>
-        <PopoverContent align="start" className="w-(--radix-popover-trigger-width) p-2">
+        <PopoverContent align="start" className="w-[var(--radix-popover-trigger-width)] p-2">
           <div className="max-h-72 overflow-y-auto space-y-1">
             {availableOptions.map((option) => {
               const selected = selectedValues.includes(option);

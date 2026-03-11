@@ -100,8 +100,7 @@ export function TeamStatsPage(props: TeamStatsPageProps) {
     const rateSections = props.rateSections ?? displayConfig.rateSections;
     const matchBadges = props.matchBadges ?? displayConfig.matchBadges;
     const startPositionConfig = props.startPositionConfig ?? displayConfig.startPositionConfig;
-    const calculateStatsSingle = props.calculateStats
-        ?? ((teamNumber: string, eventFilter?: string) => hookCalculate(teamNumber, eventFilter));
+    const calculateStatsSingle = props.calculateStats ?? hookCalculate;
     const calculateStatsMulti = props.calculateStatsMultiEvent ?? hookCalculate;
     const PitDataComponent = props.PitDataComponent ?? PitDataDisplay;
 

@@ -168,7 +168,7 @@ export default function StrategyOverviewPage() {
                         </div>
                     </div>
                 </div>
-                <Skeleton className="h-100 w-full rounded-xl" />
+                <Skeleton className="h-[400px] w-full rounded-xl" />
                 <div className="space-y-2">
                     <Skeleton className="h-10 w-full" />
                     <Skeleton className="h-20 w-full" />

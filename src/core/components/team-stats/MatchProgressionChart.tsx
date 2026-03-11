@@ -110,7 +110,7 @@ export function MatchProgressionChart({
         : [];
     const allSeries = [...primarySeries, ...compareSeries];
 
-    // Prepare chart data: one row per match number, series split by event key.
+    // Prepare chart data: one row per match number so events share the same x-axis for comparison.
     const chartRows = new Map<number, Record<string, number | string>>();
 
     for (const match of matchResults) {
@@ -131,9 +131,11 @@ export function MatchProgressionChart({
         }
     }
 
-    const chartData = [...chartRows.entries()]
-        .sort((a, b) => a[0] - b[0])
-        .map(([, row]) => row);
+    const chartData = [...chartRows.values()].sort((a, b) => {
+        const matchA = typeof a.match === 'number' ? a.match : Number(a.match) || 0;
+        const matchB = typeof b.match === 'number' ? b.match : Number(b.match) || 0;
+        return matchA - matchB;
+    });
 
     const chartConfig = allSeries.reduce<Record<string, { label: string; color: string }>>((config, series) => {
         config[series.key] = {
