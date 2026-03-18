@@ -38,7 +38,7 @@ function AlertTitle({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="alert-title"
-      className={cn("font-semibold leading-none tracking-tight", className)}
+      className={cn("col-start-2 font-semibold leading-none tracking-tight", className)}
       {...props}
     />
   )
@@ -51,7 +51,7 @@ function AlertDescription({
   return (
     <div
       data-slot="alert-description"
-      className={cn("[&_p]:leading-relaxed", className)}
+      className={cn("col-start-2 [&_p]:leading-relaxed", className)}
       {...props}
     />
   )

@@ -3,13 +3,13 @@
  * UI components for filtering large scouting datasets before transfer
  */
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/core/components/ui/card";
 import { Button } from "@/core/components/ui/button";
 import { Badge } from "@/core/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/core/components/ui/alert";
+import { GenericSelector } from "@/core/components/ui/generic-selector";
 import { Label } from "@/core/components/ui/label";
-import { Input } from "@/core/components/ui/input";
 import {
     Select,
     SelectContent,
@@ -29,8 +29,14 @@ import {
     type DataFilters,
     type FilteredDataStats,
     type ScoutingDataCollection,
+    extractEventKeys,
+    extractMatchOptions,
+    extractMatchCount,
     extractTeamNumbers,
     extractMatchRange,
+    extractScoutNames,
+    formatTransferMatchLabel,
+    applyFilters,
     calculateFilterStats,
     validateFilters,
     getLastExportedMatch
@@ -45,6 +51,14 @@ interface DataFilteringControlsProps {
     filteredData?: ScoutingDataCollection | null;
     hideQRStats?: boolean;
     hideApplyButton?: boolean;
+    showMatchRange?: boolean;
+    showEventFilter?: boolean;
+    showTeamFilter?: boolean;
+    showScoutFilter?: boolean;
+    availableEvents?: string[];
+    availableTeams?: string[];
+    availableScouts?: string[];
+    summaryOverride?: string;
 }
 
 export const DataFilteringControls: React.FC<DataFilteringControlsProps> = ({
@@ -55,30 +69,80 @@ export const DataFilteringControls: React.FC<DataFilteringControlsProps> = ({
     useCompression = true,
     filteredData,
     hideQRStats = false,
-    hideApplyButton = false
+    hideApplyButton = false,
+    showMatchRange = true,
+    showEventFilter = true,
+    showTeamFilter = true,
+    showScoutFilter = false,
+    availableEvents,
+    availableTeams,
+    availableScouts,
+    summaryOverride
 }) => {
-    const teams = data ? extractTeamNumbers(data) : [];
-    const matchRange = data ? extractMatchRange(data) : { min: 1, max: 1 };
-    const currentData = filteredData || data;
+    const matchRangeBaseData = useMemo(() => {
+        if (!data) return null;
+        return applyFilters(data, {
+            ...filters,
+            matchRange: {
+                type: 'preset',
+                preset: 'all'
+            }
+        });
+    }, [data, filters]);
+    const events = availableEvents ?? (data ? extractEventKeys(data) : []);
+    const teams = availableTeams ?? (data ? extractTeamNumbers(data) : []);
+    const scouts = availableScouts ?? (showScoutFilter ? extractScoutNames([]) : []);
+    const matchRange = matchRangeBaseData ? extractMatchRange(matchRangeBaseData) : { min: 1, max: 1 };
+    const availableMatchOptions = matchRangeBaseData ? extractMatchOptions(matchRangeBaseData) : [];
+    const previewFilteredData = useMemo(() => {
+        if (!data) return null;
+        return applyFilters(data, filters);
+    }, [data, filters]);
+
+    const currentData = filteredData || previewFilteredData || data;
     const currentMatchRange = currentData ? extractMatchRange(currentData) : { min: 1, max: 1 };
+    const currentMatchCount = showMatchRange && currentData ? extractMatchCount(currentData) : 0;
+    const currentMatchOptions = showMatchRange && currentData ? extractMatchOptions(currentData) : [];
+    const currentRangeLabel = currentMatchOptions.length === 0
+        ? 'No matches'
+        : currentMatchOptions.length === 1
+            ? currentMatchOptions[0]?.label ?? '1 match'
+            : `${currentMatchOptions[0]?.label ?? 'First'} - ${currentMatchOptions[currentMatchOptions.length - 1]?.label ?? 'Last'}`;
     const stats = data && currentData ? calculateFilterStats(data, currentData, useCompression) : null;
     const filterValidation = validateFilters(filters);
 
     const handleMatchRangeChange = (type: 'preset' | 'custom', value?: string) => {
-        const newFilters = { ...filters };
-        newFilters.matchRange.type = type;
+        const newFilters: DataFilters = {
+            ...filters,
+            matchRange: {
+                ...filters.matchRange,
+                type
+            }
+        };
 
         if (type === 'preset') {
             newFilters.matchRange.preset = value as 'last10' | 'last15' | 'last30' | 'all' | 'fromLastExport';
             delete newFilters.matchRange.customStart;
             delete newFilters.matchRange.customEnd;
+            delete newFilters.matchRange.customStartKey;
+            delete newFilters.matchRange.customEndKey;
+        } else if (availableMatchOptions.length > 0) {
+            newFilters.matchRange.customStart = 1;
+            newFilters.matchRange.customEnd = availableMatchOptions.length;
+            newFilters.matchRange.customStartKey = availableMatchOptions[0]?.key;
+            newFilters.matchRange.customEndKey = availableMatchOptions[availableMatchOptions.length - 1]?.key;
         }
 
         onFiltersChange(newFilters);
     };
 
     const handleCustomRangeChange = (field: 'start' | 'end', value: string) => {
-        const newFilters = { ...filters };
+        const newFilters: DataFilters = {
+            ...filters,
+            matchRange: {
+                ...filters.matchRange
+            }
+        };
         const numValue = parseInt(value) || undefined;
 
         if (field === 'start') {
@@ -90,39 +154,101 @@ export const DataFilteringControls: React.FC<DataFilteringControlsProps> = ({
         onFiltersChange(newFilters);
     };
 
-    const handleTeamSelectionChange = (teamNumber: string, selected: boolean) => {
-        const newFilters = { ...filters };
+    const handleCustomRangeKeyChange = (field: 'start' | 'end', value: string) => {
+        const selectedOption = availableMatchOptions.find(option => option.key === value);
+        if (!selectedOption) return;
 
-        if (selected) {
-            newFilters.teams.selectedTeams = [...newFilters.teams.selectedTeams, teamNumber];
-        } else {
-            newFilters.teams.selectedTeams = newFilters.teams.selectedTeams.filter(t => t !== teamNumber);
-        }
-
-        newFilters.teams.includeAll = newFilters.teams.selectedTeams.length === 0;
+        const newFilters: DataFilters = {
+            ...filters,
+            matchRange: {
+                ...filters.matchRange,
+                customStart: field === 'start' ? selectedOption.index : filters.matchRange.customStart,
+                customEnd: field === 'end' ? selectedOption.index : filters.matchRange.customEnd,
+                customStartKey: field === 'start' ? selectedOption.key : filters.matchRange.customStartKey,
+                customEndKey: field === 'end' ? selectedOption.key : filters.matchRange.customEndKey,
+            }
+        };
 
         onFiltersChange(newFilters);
     };
 
+    const handleEventSelectionChange = (eventKey: string, selected: boolean) => {
+        const selectedEvents = selected
+            ? [...filters.events.selectedEvents, eventKey]
+            : filters.events.selectedEvents.filter(event => event !== eventKey);
+
+        onFiltersChange({
+            ...filters,
+            events: {
+                selectedEvents,
+                includeAll: selectedEvents.length === 0
+            }
+        });
+    };
+
+    const handleSelectAllEvents = (selectAll: boolean) => {
+        onFiltersChange({
+            ...filters,
+            events: {
+                selectedEvents: [],
+                includeAll: selectAll
+            }
+        });
+    };
+
+    const handleTeamSelectionChange = (teamNumber: string, selected: boolean) => {
+        const selectedTeams = selected
+            ? [...filters.teams.selectedTeams, teamNumber]
+            : filters.teams.selectedTeams.filter(t => t !== teamNumber);
+
+        onFiltersChange({
+            ...filters,
+            teams: {
+                selectedTeams,
+                includeAll: selectedTeams.length === 0
+            }
+        });
+    };
+
     const handleSelectAllTeams = (selectAll: boolean) => {
-        const newFilters = { ...filters };
+        onFiltersChange({
+            ...filters,
+            teams: {
+                selectedTeams: [],
+                includeAll: selectAll
+            }
+        });
+    };
 
-        if (selectAll) {
-            newFilters.teams.selectedTeams = [];
-            newFilters.teams.includeAll = true;
-        } else {
-            newFilters.teams.selectedTeams = teams.slice(0, 5);
-            newFilters.teams.includeAll = false;
-        }
+    const handleScoutSelectionChange = (scoutName: string, selected: boolean) => {
+        const selectedScouts = selected
+            ? [...filters.scouts.selectedScouts, scoutName]
+            : filters.scouts.selectedScouts.filter(scout => scout !== scoutName);
 
-        onFiltersChange(newFilters);
+        onFiltersChange({
+            ...filters,
+            scouts: {
+                selectedScouts,
+                includeAll: selectedScouts.length === 0
+            }
+        });
+    };
+
+    const handleSelectAllScouts = (selectAll: boolean) => {
+        onFiltersChange({
+            ...filters,
+            scouts: {
+                selectedScouts: [],
+                includeAll: selectAll
+            }
+        });
     };
 
     return (
         <div className="space-y-2">
-            <Label className="flex flex-col text-base font-medium items-start">Match Range Filter</Label>
+            {showMatchRange && <Label className="flex flex-col text-base font-medium items-start">Match Range Filter</Label>}
 
-            <div className="space-y-2">
+            {showMatchRange && <div className="space-y-2">
                 {!hideQRStats && stats && currentData && (
                     <Label className="flex flex-col text-green-400 text-sm items-start gap-0">
                         Current dataset: ~{stats.estimatedQRCodes} QR codes from {currentData.entries.length} entries
@@ -134,10 +260,16 @@ export const DataFilteringControls: React.FC<DataFilteringControlsProps> = ({
                 <div className="space-y-2">
                     {currentData && (
                         <Label className="flex flex-col text-green-400 text-sm items-start gap-0">
-                            {hideQRStats ? 'Available data:' : 'Data range:'} Match {currentMatchRange.min} - {currentMatchRange.max} ({currentData.entries.length} entries)
+                            {hideQRStats ? 'Available data:' : 'Data range:'} {currentRangeLabel} ({currentMatchCount} {currentMatchCount === 1 ? 'match' : 'matches'}, {currentData.entries.length} entries)
                             {filteredData && (
                                 <span className="text-muted-foreground">Original: Match {matchRange.min} - {matchRange.max}</span>
                             )}
+                        </Label>
+                    )}
+
+                    {!showMatchRange && summaryOverride && (
+                        <Label className="flex flex-col text-green-400 text-sm items-start gap-0">
+                            {summaryOverride}
                         </Label>
                     )}
 
@@ -169,40 +301,103 @@ export const DataFilteringControls: React.FC<DataFilteringControlsProps> = ({
                             {(() => {
                                 const lastExported = getLastExportedMatch();
                                 return lastExported
-                                    ? `Will include matches from ${lastExported + 1} onwards (last export: match ${lastExported})`
+                                    ? `Will include matches from position ${lastExported + 1} onwards`
                                     : 'No previous export found - will include all matches';
                             })()}
                         </div>
                     )}
 
                     {filters.matchRange.type === 'custom' && (
-                        <div className="flex gap-2 items-center">
-                            <Label className="text-sm">From:</Label>
-                            <Input
-                                type="number"
-                                min={matchRange.min}
-                                max={matchRange.max}
-                                value={filters.matchRange.customStart || ''}
-                                onChange={(e) => handleCustomRangeChange('start', e.target.value)}
-                                placeholder={matchRange.min.toString()}
-                                className="w-20"
-                            />
-                            <Label className="text-sm">To:</Label>
-                            <Input
-                                type="number"
-                                min={matchRange.min}
-                                max={matchRange.max}
-                                value={filters.matchRange.customEnd || ''}
-                                onChange={(e) => handleCustomRangeChange('end', e.target.value)}
-                                placeholder={matchRange.max.toString()}
-                                className="w-20"
-                            />
+                        <div className="space-y-2">
+                            <div className="flex flex-wrap items-center gap-3">
+                                <div className="flex items-center gap-2 min-w-0 flex-1">
+                                    <Label className="text-sm shrink-0">From:</Label>
+                                    <div className="min-w-0 flex-1">
+                                        <GenericSelector
+                                            label="Select first match"
+                                            value={filters.matchRange.customStartKey || availableMatchOptions[0]?.key || ''}
+                                            availableOptions={availableMatchOptions.map(option => option.key)}
+                                            onValueChange={(value) => handleCustomRangeKeyChange('start', value)}
+                                            placeholder="Select first match"
+                                            displayFormat={(value) => availableMatchOptions.find(option => option.key === value)?.label || value}
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="flex items-center gap-2 min-w-0 flex-1">
+                                    <Label className="text-sm shrink-0">To:</Label>
+                                    <div className="min-w-0 flex-1">
+                                        <GenericSelector
+                                            label="Select last match"
+                                            value={filters.matchRange.customEndKey || availableMatchOptions[availableMatchOptions.length - 1]?.key || ''}
+                                            availableOptions={availableMatchOptions.map(option => option.key)}
+                                            onValueChange={(value) => handleCustomRangeKeyChange('end', value)}
+                                            placeholder="Select last match"
+                                            displayFormat={(value) => availableMatchOptions.find(option => option.key === value)?.label || value}
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                            {(filters.matchRange.customStartKey || filters.matchRange.customEndKey) && (
+                                <div className="text-xs text-muted-foreground">
+                                    Selected range: {formatTransferMatchLabel(filters.matchRange.customStartKey || availableMatchOptions[0]?.key || '')}
+                                    {' - '}
+                                    {formatTransferMatchLabel(filters.matchRange.customEndKey || availableMatchOptions[availableMatchOptions.length - 1]?.key || '')}
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>
-            </div>
+            </div>}
 
-            <div className="space-y-3">
+            {!showMatchRange && summaryOverride && (
+                <div className="space-y-2">
+                    <Label className="flex flex-col text-green-400 text-sm items-start gap-0">
+                        {summaryOverride}
+                    </Label>
+                </div>
+            )}
+
+            {showEventFilter && <div className="space-y-3">
+                <Label className="text-base font-medium">Event Filter</Label>
+
+                <div className="flex items-center space-x-2">
+                    <Checkbox
+                        id="select-all-events"
+                        checked={filters.events.includeAll}
+                        onCheckedChange={handleSelectAllEvents}
+                    />
+                    <Label htmlFor="select-all-events" className="text-sm">
+                        Include all events ({events.length} events)
+                    </Label>
+                </div>
+
+                {!filters.events.includeAll && (
+                    <div className="space-y-2">
+                        <Label className="text-sm text-muted-foreground">
+                            Select specific events ({filters.events.selectedEvents.length} selected):
+                        </Label>
+                        <div className="grid grid-cols-1 gap-2 max-h-32 overflow-y-auto border rounded p-2">
+                            {events.map(eventKey => (
+                                <div key={eventKey} className="flex items-center space-x-2">
+                                    <Checkbox
+                                        id={`event-${eventKey}`}
+                                        checked={filters.events.selectedEvents.includes(eventKey)}
+                                        onCheckedChange={(checked) =>
+                                            handleEventSelectionChange(eventKey, checked as boolean)
+                                        }
+                                    />
+                                    <Label htmlFor={`event-${eventKey}`} className="text-sm break-all">
+                                        {eventKey}
+                                    </Label>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+            </div>}
+
+            {showTeamFilter && <div className="space-y-3">
                 <Label className="text-base font-medium">Team Filter</Label>
 
                 <div className="flex items-center space-x-2">
@@ -239,7 +434,46 @@ export const DataFilteringControls: React.FC<DataFilteringControlsProps> = ({
                         </div>
                     </div>
                 )}
-            </div>
+            </div>}
+
+            {showScoutFilter && <div className="space-y-3">
+                <Label className="text-base font-medium">Scout Filter</Label>
+
+                <div className="flex items-center space-x-2">
+                    <Checkbox
+                        id="select-all-scouts"
+                        checked={filters.scouts.includeAll}
+                        onCheckedChange={handleSelectAllScouts}
+                    />
+                    <Label htmlFor="select-all-scouts" className="text-sm">
+                        Include all scouts ({scouts.length} scouts)
+                    </Label>
+                </div>
+
+                {!filters.scouts.includeAll && (
+                    <div className="space-y-2">
+                        <Label className="text-sm text-muted-foreground">
+                            Select specific scouts ({filters.scouts.selectedScouts.length} selected):
+                        </Label>
+                        <div className="grid grid-cols-1 gap-2 max-h-32 overflow-y-auto border rounded p-2">
+                            {scouts.map(scout => (
+                                <div key={scout} className="flex items-center space-x-2">
+                                    <Checkbox
+                                        id={`scout-${scout}`}
+                                        checked={filters.scouts.selectedScouts.includes(scout)}
+                                        onCheckedChange={(checked) =>
+                                            handleScoutSelectionChange(scout, checked as boolean)
+                                        }
+                                    />
+                                    <Label htmlFor={`scout-${scout}`} className="text-sm break-all">
+                                        {scout}
+                                    </Label>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+            </div>}
 
             {!filterValidation.valid && (
                 <Alert variant="destructive">
@@ -358,7 +592,7 @@ export const FilteredDataStatsDisplay: React.FC<FilteredDataStatsProps> = ({
                         {getWarningMessage()}
                         {stats.warningLevel === 'danger' && (
                             <div className="mt-2 text-sm">
-                                Consider selecting specific teams or using "Last 15 matches" to reduce the QR code count.
+                                Consider selecting specific events, selecting specific teams, or using "Last 15 matches" to reduce the QR code count.
                             </div>
                         )}
                     </AlertDescription>

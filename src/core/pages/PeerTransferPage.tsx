@@ -15,6 +15,7 @@ import ConflictResolutionDialog from '@/core/components/data-transfer/ConflictRe
 import { BatchConflictDialog } from '@/core/components/data-transfer/BatchConflictDialog';
 import { createDefaultFilters, type DataFilters } from '@/core/lib/dataFiltering';
 import { loadScoutingData } from '@/core/lib/scoutingDataUtils';
+import { loadPitScoutingData } from '@/core/lib/pitScoutingUtils';
 import { toast } from 'sonner';
 import type { TransferDataType } from '@/core/contexts/WebRTCContext';
 import {
@@ -36,7 +37,10 @@ const PeerTransferPage = () => {
     const [historyCollapsed, setHistoryCollapsed] = useState(false);
 
     const [filters, setFilters] = useState<DataFilters>(createDefaultFilters());
+    const [appliedFilters, setAppliedFilters] = useState<DataFilters>(createDefaultFilters());
     const [allScoutingData, setAllScoutingData] = useState<Awaited<ReturnType<typeof loadScoutingData>> | null>(null);
+    const [allPitScoutingData, setAllPitScoutingData] = useState<Awaited<ReturnType<typeof loadPitScoutingData>> | null>(null);
+    const [allScoutNames, setAllScoutNames] = useState<string[]>([]);
 
     const [dataType, setDataType] = useState<TransferDataType>('scouting');
 
@@ -124,6 +128,15 @@ const PeerTransferPage = () => {
             loadScoutingData().then(data => setAllScoutingData(data)).catch(err => {
                 console.error('Failed to load scouting data for filter preview:', err);
             });
+            loadPitScoutingData().then(data => setAllPitScoutingData(data)).catch(err => {
+                console.error('Failed to load pit scouting data for filter preview:', err);
+            });
+            import('@/game-template/gamification').then(({ getAllScouts }) => getAllScouts())
+                .then(scouts => setAllScoutNames(scouts.map(scout => scout.name)))
+                .catch(err => {
+                    console.error('Failed to load scout profiles for filter preview:', err);
+                    setAllScoutNames([]);
+                });
         }
     }, [mode]);
 
@@ -132,7 +145,9 @@ const PeerTransferPage = () => {
     };
 
     const handleApplyFilters = () => {
-        debugLog('📋 Filters updated:', filters);
+        setAppliedFilters(filters);
+        debugLog('📋 Applied filters:', filters);
+        toast.success('Wi-Fi transfer filters updated');
     };
 
     const handleBatchReviewDecision = async (decision: 'replace-all' | 'skip-all' | 'review-each') => {
@@ -225,7 +240,10 @@ const PeerTransferPage = () => {
                     dataType={dataType}
                     setDataType={setDataType}
                     filters={filters}
+                    appliedFilters={appliedFilters}
                     allScoutingData={allScoutingData}
+                    allPitScoutingData={allPitScoutingData}
+                    allScoutNames={allScoutNames}
                     historyCollapsed={historyCollapsed}
                     setHistoryCollapsed={setHistoryCollapsed}
                     requestingScouts={requestingScouts}

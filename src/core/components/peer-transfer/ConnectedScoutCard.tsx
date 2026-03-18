@@ -8,6 +8,7 @@ import { Badge } from '@/core/components/ui/badge';
 import { AlertCircle, CheckCircle2, Loader2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import type { TransferDataType } from '@/core/contexts/WebRTCContext';
+import { applyFilters, filterPitScoutingEntries, filterScoutProfilePayload, type DataFilters } from '@/core/lib/dataFiltering';
 import { buildPitAssignmentsTransferPayload } from '@/core/lib/pitAssignmentTransfer';
 import { debugLog } from '@/core/lib/peerTransferUtils';
 
@@ -28,6 +29,7 @@ interface ConnectedScoutCardProps {
     isRequesting: boolean;
     receivedData: ReceivedDataEntry[];
     dataType: TransferDataType;
+    pushFilters?: DataFilters;
     onRequestData: (scoutId: string) => void;
     onPushData: (scoutId: string, data: unknown, dataType: TransferDataType) => void;
     onDisconnect: (scoutId: string) => void;
@@ -39,6 +41,7 @@ export function ConnectedScoutCard({
     isRequesting,
     receivedData,
     dataType,
+    pushFilters,
     onRequestData,
     onPushData,
     onDisconnect,
@@ -61,7 +64,10 @@ export function ConnectedScoutCard({
             switch (dataType) {
                 case 'scouting': {
                     const { loadScoutingData } = await import('@/core/lib/scoutingDataUtils');
-                    const entries = await loadScoutingData();
+                    let entries = await loadScoutingData();
+                    if (pushFilters) {
+                        entries = applyFilters({ entries, version: '3.0-maneuver-core', exportedAt: Date.now() }, pushFilters).entries;
+                    }
                     data = {
                         entries,
                         version: '3.0-maneuver-core',
@@ -73,7 +79,7 @@ export function ConnectedScoutCard({
                     const { loadPitScoutingData } = await import('@/core/lib/pitScoutingUtils');
                     const pitData = await loadPitScoutingData();
                     data = {
-                        entries: pitData.entries,
+                        entries: pushFilters ? filterPitScoutingEntries(pitData.entries, pushFilters) : pitData.entries,
                         version: '3.0-maneuver-core',
                         exportedAt: Date.now()
                     };
@@ -101,7 +107,9 @@ export function ConnectedScoutCard({
                     const scouts = await gamificationDB.scouts.toArray();
                     const predictions = await gamificationDB.predictions.toArray();
                     const achievements = await gamificationDB.scoutAchievements.toArray();
-                    data = { scouts, predictions, achievements };
+                    data = pushFilters
+                        ? filterScoutProfilePayload({ scouts, predictions, achievements }, pushFilters)
+                        : { scouts, predictions, achievements };
                     break;
                 }
                 case 'combined': {
@@ -114,12 +122,16 @@ export function ConnectedScoutCard({
                         gamificationDB.predictions.toArray()
                     ]);
 
+                    const filteredEntries = pushFilters
+                        ? applyFilters({ entries, version: '1.0', exportedAt: Date.now() }, pushFilters).entries
+                        : entries;
+
                     data = {
-                        entries: entries,
+                        entries: filteredEntries,
                         metadata: {
                             exportedAt: new Date().toISOString(),
                             version: "1.0",
-                            scoutingEntriesCount: entries.length,
+                            scoutingEntriesCount: filteredEntries.length,
                             scoutsCount: scouts.length,
                             predictionsCount: predictions.length
                         },

@@ -6,7 +6,7 @@
  * Supports auto-cycling, playback controls, and smart compression.
  */
 
-import { useState, useEffect, type ReactNode } from "react";
+import { useState, useEffect, useRef, type ReactNode } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { Button } from "@/core/components/ui/button";
 import { Input } from "@/core/components/ui/input";
@@ -42,6 +42,18 @@ interface FountainPacket {
   indices?: number[];
 }
 
+type PacketDraft = Omit<FountainPacket, 'qrPayload' | 'totalPackets'>;
+type EncodedBlock = Parameters<typeof blockToBinary>[0];
+
+interface FountainGenerationSession {
+  iterator: Iterator<EncodedBlock>;
+  sessionId: string;
+  seenIndicesCombinations: Set<string>;
+  nextPacketId: number;
+  profile: FountainProfile;
+  additionalBatchSize: number;
+}
+
 export interface UniversalFountainGeneratorProps {
   onBack: () => void;
   onSwitchToScanner?: () => void;
@@ -53,6 +65,8 @@ export interface UniversalFountainGeneratorProps {
   noDataMessage: string;
   settingsContent?: ReactNode;
 }
+
+type GenerationMode = 'normal' | 'stuck-simulation';
 
 export const UniversalFountainGenerator = ({
   onBack,
@@ -73,6 +87,8 @@ export const UniversalFountainGenerator = ({
   const [isPaused, setIsPaused] = useState(false);
   const [jumpToPacket, setJumpToPacket] = useState<string>('');
   const [fountainProfile, setFountainProfile] = useState<FountainProfile>('fast');
+  const packetDraftsRef = useRef<PacketDraft[]>([]);
+  const generationSessionRef = useRef<FountainGenerationSession | null>(null);
 
   // Speed presets
   const speedPresets = [
@@ -109,7 +125,133 @@ export const UniversalFountainGenerator = ({
     loadDataAsync();
   }, [loadData, dataType]);
 
-  const generateFountainPackets = () => {
+  const buildPacketSet = (drafts: PacketDraft[], profile: FountainProfile) => {
+    let candidateDrafts = drafts;
+    let generatedPackets: FountainPacket[] = [];
+
+    for (let pass = 0; pass < 3; pass++) {
+      const candidateTotal = candidateDrafts.length;
+      const nextDrafts: PacketDraft[] = [];
+      const nextPackets: FountainPacket[] = [];
+
+      candidateDrafts.forEach((draft, index) => {
+        const normalizedDraft: PacketDraft = {
+          ...draft,
+          packetId: index
+        };
+
+        const packetJson = profile === 'reliable'
+          ? buildLegacyPacketJson({
+            type: normalizedDraft.type,
+            sessionId: normalizedDraft.sessionId,
+            packetId: normalizedDraft.packetId,
+            totalPackets: candidateTotal,
+            data: normalizedDraft.data,
+            k: normalizedDraft.k ?? 0,
+            bytes: normalizedDraft.bytes ?? 0,
+            checksum: normalizedDraft.checksum ?? '',
+            indices: normalizedDraft.indices ?? []
+          })
+          : buildCompactPacketJson({
+            type: normalizedDraft.type,
+            sessionId: normalizedDraft.sessionId,
+            packetId: normalizedDraft.packetId,
+            totalPackets: candidateTotal,
+            profile: normalizedDraft.profile,
+            data: normalizedDraft.data
+          });
+
+        if (packetJson.length > (QR_CODE_SIZE_BYTES * 0.9)) {
+          console.warn(`📦 Packet ${normalizedDraft.packetId} too large (${packetJson.length} chars), skipping`);
+          return;
+        }
+
+        nextDrafts.push(normalizedDraft);
+        nextPackets.push({
+          ...normalizedDraft,
+          totalPackets: candidateTotal,
+          qrPayload: packetJson
+        });
+      });
+
+      generatedPackets = nextPackets;
+
+      if (nextDrafts.length === candidateDrafts.length) {
+        break;
+      }
+
+      candidateDrafts = nextDrafts;
+    }
+
+    return {
+      drafts: candidateDrafts,
+      packets: generatedPackets
+    };
+  };
+
+  const collectAdditionalPacketDrafts = (session: FountainGenerationSession, count: number) => {
+    const nextDrafts = [...packetDraftsRef.current];
+    let generatedCount = 0;
+    let attempts = 0;
+    const maxAttempts = Math.max(count * 20, count + 20);
+
+    while (generatedCount < count && attempts < maxAttempts) {
+      attempts++;
+
+      const nextBlock = session.iterator.next();
+      if (nextBlock.done || !nextBlock.value) {
+        break;
+      }
+
+      const block = nextBlock.value;
+      const indicesKey = [...block.indices].sort((a, b) => a - b).join(',');
+      if (session.seenIndicesCombinations.has(indicesKey)) {
+        continue;
+      }
+
+      session.seenIndicesCombinations.add(indicesKey);
+
+      try {
+        const binary = blockToBinary(block);
+        const base64Data = fromUint8Array(binary);
+
+        nextDrafts.push({
+          type: `${dataType}_fountain_packet`,
+          sessionId: session.sessionId,
+          packetId: session.nextPacketId,
+          data: base64Data,
+          profile: session.profile,
+          k: block.k,
+          bytes: block.bytes,
+          checksum: String(block.checksum),
+          indices: block.indices
+        });
+
+        session.nextPacketId++;
+        generatedCount++;
+      } catch (error) {
+        console.error(`Error generating packet ${session.nextPacketId}:`, error);
+        break;
+      }
+    }
+
+    if (generatedCount < count) {
+      console.warn(`⚠️ Generated ${generatedCount}/${count} additional unique packets after ${attempts} attempts`);
+    }
+
+    return nextDrafts;
+  };
+
+  const resetGeneratedPackets = () => {
+    generationSessionRef.current = null;
+    packetDraftsRef.current = [];
+    setPackets([]);
+    setCurrentPacketIndex(0);
+    setIsPaused(false);
+    setJumpToPacket('');
+  };
+
+  const generateFountainPackets = (mode: GenerationMode = 'normal') => {
     if (!data) {
       toast.error(`No ${dataType} data available`);
       return;
@@ -167,130 +309,33 @@ export const UniversalFountainGenerator = ({
     const ltEncoder = createEncoder(encodedData, blockSize);
     const newSessionId = `${dataType}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-    type PacketDraft = Omit<FountainPacket, 'qrPayload' | 'totalPackets'>;
-    const packetDrafts: PacketDraft[] = [];
-    let packetId = 0;
-    const seenIndicesCombinations = new Set();
-    let iterationCount = 0;
-
     // Adaptive packet strategy based on payload size
     const estimatedBlocks = fountainEstimate.estimatedBlocks;
     const redundancyFactor = fountainEstimate.redundancyFactor;
-    const targetPackets = fountainEstimate.targetPackets;
-
-    // Cap maximum iterations to prevent infinite loops
-    const maxIterations = targetPackets * 5;
+    const targetPackets = mode === 'stuck-simulation'
+      ? Math.max(1, estimatedBlocks - 2)
+      : fountainEstimate.targetPackets;
+    const additionalBatchSize = Math.max(Math.ceil(targetPackets * 0.35), fountainProfile === 'reliable' ? 10 : 8);
 
     if (import.meta.env.DEV) {
       console.log(`📊 Fountain code generation [${fountainProfile}]: ${estimatedBlocks} blocks @ ${blockSize} bytes/block, targeting ${targetPackets} packets (${Math.round((redundancyFactor - 1) * 100)}% redundancy)`);
     }
+    const generationSession: FountainGenerationSession = {
+      iterator: ltEncoder.fountain()[Symbol.iterator](),
+      sessionId: newSessionId,
+      seenIndicesCombinations: new Set(),
+      nextPacketId: 0,
+      profile: fountainProfile,
+      additionalBatchSize
+    };
 
-    for (const block of ltEncoder.fountain()) {
-      iterationCount++;
+    generationSessionRef.current = generationSession;
+    packetDraftsRef.current = [];
 
-      // Safety check to prevent infinite loops
-      if (iterationCount > maxIterations) {
-        console.warn(`⚠️ Reached maximum iterations (${maxIterations}), stopping generation with ${packetDrafts.length} packets`);
-        console.warn(`Target was ${targetPackets} packets, achieved ${Math.round((packetDrafts.length / targetPackets) * 100)}%`);
-        break;
-      }
+    const collectedDrafts = collectAdditionalPacketDrafts(generationSession, targetPackets);
+    const { drafts: stableDrafts, packets: generatedPackets } = buildPacketSet(collectedDrafts, fountainProfile);
 
-      // Stop when we have enough packets for reliable decoding
-      if (packetDrafts.length >= targetPackets) {
-        if (import.meta.env.DEV) {
-          console.log(`✅ Generated target ${targetPackets} packets, stopping`);
-        }
-        break;
-      }
-
-      try {
-        const indicesKey = block.indices.sort().join(',');
-        if (seenIndicesCombinations.has(indicesKey)) {
-          continue;
-        }
-        seenIndicesCombinations.add(indicesKey);
-
-        const binary = blockToBinary(block);
-        const base64Data = fromUint8Array(binary);
-
-        const packetDraft: PacketDraft = {
-          type: `${dataType}_fountain_packet`,
-          sessionId: newSessionId,
-          packetId,
-          data: base64Data,
-          profile: fountainProfile,
-          k: block.k,
-          bytes: block.bytes,
-          checksum: String(block.checksum),
-          indices: block.indices
-        };
-
-        packetDrafts.push(packetDraft);
-        packetId++;
-      } catch (error) {
-        console.error(`Error generating packet ${packetId}:`, error);
-        break;
-      }
-    }
-
-    // Build final payloads with exact total count, then stabilize if size filtering removes any packets.
-    let candidateDrafts = packetDrafts;
-    let generatedPackets: FountainPacket[] = [];
-
-    for (let pass = 0; pass < 3; pass++) {
-      const candidateTotal = candidateDrafts.length;
-      const nextDrafts: PacketDraft[] = [];
-      const nextPackets: FountainPacket[] = [];
-
-      candidateDrafts.forEach((draft, index) => {
-        const normalizedDraft: PacketDraft = {
-          ...draft,
-          packetId: index
-        };
-
-        const packetJson = fountainProfile === 'reliable'
-          ? buildLegacyPacketJson({
-            type: normalizedDraft.type,
-            sessionId: normalizedDraft.sessionId,
-            packetId: normalizedDraft.packetId,
-            totalPackets: candidateTotal,
-            data: normalizedDraft.data,
-            k: normalizedDraft.k ?? 0,
-            bytes: normalizedDraft.bytes ?? 0,
-            checksum: normalizedDraft.checksum ?? '',
-            indices: normalizedDraft.indices ?? []
-          })
-          : buildCompactPacketJson({
-            type: normalizedDraft.type,
-            sessionId: normalizedDraft.sessionId,
-            packetId: normalizedDraft.packetId,
-            totalPackets: candidateTotal,
-            profile: normalizedDraft.profile,
-            data: normalizedDraft.data
-          });
-
-        // 90% of QR capacity to leave room for encoding overhead.
-        if (packetJson.length > (QR_CODE_SIZE_BYTES * 0.9)) {
-          console.warn(`📦 Packet ${normalizedDraft.packetId} too large (${packetJson.length} chars), skipping`);
-          return;
-        }
-
-        nextDrafts.push(normalizedDraft);
-        nextPackets.push({
-          ...normalizedDraft,
-          totalPackets: candidateTotal,
-          qrPayload: packetJson
-        });
-      });
-
-      generatedPackets = nextPackets;
-
-      if (nextDrafts.length === candidateDrafts.length) {
-        break;
-      }
-
-      candidateDrafts = nextDrafts;
-    }
+    packetDraftsRef.current = stableDrafts;
 
     setPackets(generatedPackets);
     setCurrentPacketIndex(0);
@@ -299,7 +344,36 @@ export const UniversalFountainGenerator = ({
 
     const selectedSpeed = speedPresets.find(s => s.value === cycleSpeed);
     const estimatedTime = Math.round((generatedPackets.length * cycleSpeed) / 1000);
-    toast.success(`Generated ${generatedPackets.length} packets - cycling at ${selectedSpeed?.label}! (~${estimatedTime}s per cycle)`);
+    if (mode === 'stuck-simulation') {
+      toast.success(`Generated ${generatedPackets.length} packets in dev stuck-transfer mode. Scan one full cycle to trigger the warning, then use Generate More Packets.`);
+    } else {
+      toast.success(`Generated ${generatedPackets.length} packets - cycling at ${selectedSpeed?.label}! (~${estimatedTime}s per cycle)`);
+    }
+  };
+
+  const generateMorePackets = () => {
+    const session = generationSessionRef.current;
+    if (!session) {
+      toast.error("Generate packets first");
+      return;
+    }
+
+    const previousTotal = packetDraftsRef.current.length;
+    const collectedDrafts = collectAdditionalPacketDrafts(session, session.additionalBatchSize);
+    const { drafts: stableDrafts, packets: generatedPackets } = buildPacketSet(collectedDrafts, session.profile);
+    const addedPackets = stableDrafts.length - previousTotal;
+
+    if (addedPackets <= 0) {
+      toast.error("Could not generate additional unique packets");
+      return;
+    }
+
+    packetDraftsRef.current = stableDrafts;
+    setPackets(generatedPackets);
+    setCurrentPacketIndex(prev => Math.min(prev, Math.max(generatedPackets.length - 1, 0)));
+    setIsPaused(false);
+
+    toast.success(`Added ${addedPackets} new packets. Now broadcasting ${generatedPackets.length} total packets.`);
   };
 
   // Auto-cycle packets based on selected speed (respects pause state)
@@ -462,12 +536,31 @@ export const UniversalFountainGenerator = ({
               )}
 
               <Button
-                onClick={generateFountainPackets}
+                onClick={() => generateFountainPackets()}
                 className="w-full h-12"
                 disabled={!isDataSufficient()}
               >
                 Generate & Start Auto-Cycling
               </Button>
+
+              {import.meta.env.DEV && (
+                <Button
+                  onClick={() => generateFountainPackets('stuck-simulation')}
+                  variant="outline"
+                  className="w-full"
+                  disabled={!isDataSufficient()}
+                >
+                  Dev: Simulate 99% Stall
+                </Button>
+              )}
+
+              {import.meta.env.DEV && (
+                <Alert>
+                  <AlertDescription>
+                    Dev-only: this generates fewer packets than the estimated block count so the scanner can reach the full-set warning without completing decode.
+                  </AlertDescription>
+                </Alert>
+              )}
 
               {!data ? (
                 <Alert variant="destructive">
@@ -492,8 +585,17 @@ export const UniversalFountainGenerator = ({
             <Alert>
               <AlertTitle className="col-span-2">📱 Scanning Instructions</AlertTitle>
               <AlertDescription className="col-span-2">
-                Point your scanner at the QR code. Use playback controls to pause, navigate, or jump to specific packets.
-                Estimated time per cycle: {Math.round((packets.length * cycleSpeed) / 1000)}s
+                <div className="space-y-2">
+                  <p>
+                    Point your scanner at the QR code. Use playback controls to pause, navigate, or jump to specific packets.
+                    Estimated time per cycle: {Math.round((packets.length * cycleSpeed) / 1000)}s.
+                  </p>
+                  <p>
+                    If the receiver is missing packets, try slowing down the cycle speed or use manual navigation.
+                    If they have scanned every packet once and are still stuck near 99%, use Generate More Packets to extend this same transfer.
+                    If that keeps happening across retries, start a new transfer in Reliable mode.
+                  </p>
+                </div>
               </AlertDescription>
             </Alert>
 
@@ -512,6 +614,24 @@ export const UniversalFountainGenerator = ({
                 )}
               </CardContent>
             </Card>
+
+            <div className="w-full grid grid-cols-1 gap-2">
+              <Button
+                onClick={generateMorePackets}
+                variant="outline"
+                className="w-full"
+              >
+                Generate More Packets (+{generationSessionRef.current?.additionalBatchSize ?? 0})
+              </Button>
+
+              <Button
+                onClick={resetGeneratedPackets}
+                variant="secondary"
+                className="w-full"
+              >
+                Stop & Generate New Packets
+              </Button>
+            </div>
 
             {/* Speed & Playback Controls */}
             <Card className="w-full">
@@ -620,7 +740,7 @@ export const UniversalFountainGenerator = ({
                 <div className="flex items-start gap-2">
                   <Info className="inline mt-0.5 text-muted-foreground shrink-0" size={16} />
                   <p className="text-xs text-muted-foreground">
-                    If unable to get final packets, try slowing down the cycle speed or use manual navigation.
+                    Use these controls to slow down, pause, or jump through packets when the receiver needs help catching a specific code.
                   </p>
                 </div>
               </CardContent>
@@ -682,19 +802,6 @@ export const UniversalFountainGenerator = ({
               </Card>
             )}
 
-            {/* Reset Button */}
-            <Button
-              onClick={() => {
-                setPackets([]);
-                setCurrentPacketIndex(0);
-                setIsPaused(false);
-                setJumpToPacket('');
-              }}
-              variant="secondary"
-              className="w-full"
-            >
-              Stop & Generate New Packets
-            </Button>
           </div>
         )}
       </div>

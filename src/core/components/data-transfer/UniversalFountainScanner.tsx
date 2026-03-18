@@ -16,7 +16,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/core/components/ui/alert"
 import { toast } from "sonner";
 import { createDecoder, binaryToBlock } from "luby-transform";
 import { toUint8Array } from "js-base64";
-import { ArrowLeft, CheckCircle } from "lucide-react";
+import { ArrowLeft, CheckCircle, TriangleAlert } from "lucide-react";
 import * as pako from 'pako';
 import { parseScannedFountainPacket, type FountainPacket } from "@/core/lib/fountainPacket";
 
@@ -54,7 +54,6 @@ export const UniversalFountainScanner = ({
   const [reconstructedData, setReconstructedData] = useState<unknown>(null);
   const [progress, setProgress] = useState({ received: 0, needed: 0, percentage: 0 });
   const [debugLog, setDebugLog] = useState<string[]>([]);
-  const [allowDuplicates, setAllowDuplicates] = useState(false);
   const [compressionDetected, setCompressionDetected] = useState<boolean | null>(null);
   const [missingPackets, setMissingPackets] = useState<number[]>([]);
   const [totalPackets, setTotalPackets] = useState<number | null>(null);
@@ -66,7 +65,6 @@ export const UniversalFountainScanner = ({
   const totalPacketsRef = useRef<number | null>(null);
 
   // Helper function to add debug messages (dev-only) - uses throttled updates
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const addDebugMsg = useCallback((_message: string) => {
     // Debug logging disabled for performance
     return;
@@ -119,24 +117,24 @@ export const UniversalFountainScanner = ({
 
   // STABLE REFS PATTERN: Ensure handleQRScan never changes to prevent Scanner re-init
   const propsRef = useRef({
-    allowDuplicates, expectedPacketType, saveData, validateData,
+    expectedPacketType, saveData, validateData,
     completionMessage, getDataSummary, onBack, dataType, decompressData, onComplete
   });
 
   // Update props ref on render
   useEffect(() => {
     propsRef.current = {
-      allowDuplicates, expectedPacketType, saveData, validateData,
+      expectedPacketType, saveData, validateData,
       completionMessage, getDataSummary, onBack, dataType, decompressData, onComplete
     };
-  }, [allowDuplicates, expectedPacketType, saveData, validateData, completionMessage, getDataSummary, onBack, dataType, decompressData, onComplete]);
+  }, [expectedPacketType, saveData, validateData, completionMessage, getDataSummary, onBack, dataType, decompressData, onComplete]);
 
   const neededPacketsRef = useRef<number>(0);
 
   const handleQRScan = useCallback(async (result: { rawValue: string; }[]) => {
     // Destructure current props/state from ref (only those used in this callback)
     const {
-      allowDuplicates, expectedPacketType, saveData, validateData, decompressData
+      expectedPacketType, saveData, validateData, decompressData
     } = propsRef.current;
 
     // THROTTLE: Limit scan processing to once every 50ms (20fps max)
@@ -202,7 +200,7 @@ export const UniversalFountainScanner = ({
       addDebugMsg(`📊 Packets after session check: ${packetsRef.current.size}`);
 
       // Check if we already have this packet
-      if (packetsRef.current.has(packet.packetId) && !allowDuplicates) {
+      if (packetsRef.current.has(packet.packetId)) {
         addDebugMsg(`🔁 Duplicate packet ${packet.packetId} ignored`);
         addDebugMsg(`🔍 Current: indices [${indexPreview}]`);
         return;
@@ -221,13 +219,11 @@ export const UniversalFountainScanner = ({
 
           // Add block to decoder
           addDebugMsg(`🔧 Adding block to decoder...`);
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const isOkay = (decoderRef.current as any).addBlock(block);
           addDebugMsg(`📊 Decoder result: ${isOkay ? 'COMPLETE!' : 'Need more'}`);
 
           if (isOkay) {
             addDebugMsg("🎉 DECODING COMPLETE!");
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const decodedData = (decoderRef.current as any).getDecoded();
             addDebugMsg(`📊 Decoded data size: ${decodedData.length} bytes`);
 
@@ -395,6 +391,12 @@ export const UniversalFountainScanner = ({
       onBack();
     }
   };
+
+  const hasScannedEntirePacketSet = !isComplete
+    && typeof totalPackets === 'number'
+    && totalPackets > 0
+    && progress.received >= totalPackets
+    && missingPackets.length === 0;
 
   if (isComplete && reconstructedData) {
     return (
@@ -583,6 +585,18 @@ export const UniversalFountainScanner = ({
                     </div>
                   </div>
                 )}
+
+                {hasScannedEntirePacketSet && (
+                  <Alert className="mt-3 text-left border-amber-500/50 bg-amber-50">
+                    <TriangleAlert className="h-4 w-4 text-amber-700" />
+                    <AlertTitle className="text-amber-900">All generated packets have been scanned</AlertTitle>
+                    <AlertDescription className="text-amber-800">
+                      If the receiver is missing packets, try slowing down the cycle speed or use manual navigation.
+                      If they have scanned every packet once and are still stuck near 99%, use Generate More Packets to extend this same transfer.
+                      If that keeps happening across retries, start a new transfer in Reliable mode.
+                    </AlertDescription>
+                  </Alert>
+                )}
               </div>
             )}
 
@@ -594,17 +608,6 @@ export const UniversalFountainScanner = ({
                   className="flex-1 min-w-0"
                 >
                   Reset Scanner
-                </Button>
-              )}
-
-              {import.meta.env.DEV && (
-                <Button
-                  onClick={() => setAllowDuplicates(!allowDuplicates)}
-                  variant={allowDuplicates ? "default" : "outline"}
-                  className="flex-1 min-w-0"
-                  size="sm"
-                >
-                  {allowDuplicates ? "Duplicates: ON" : "Duplicates: OFF"}
                 </Button>
               )}
             </div>

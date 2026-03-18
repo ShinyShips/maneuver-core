@@ -1,6 +1,7 @@
 import { useCallback } from 'react';
 import type { TransferDataType } from '@/core/contexts/WebRTCContext';
 import { buildPitAssignmentsTransferPayload } from '@/core/lib/pitAssignmentTransfer';
+import { applyFilters, filterPitScoutingEntries, filterScoutProfilePayload, type DataFilters } from '@/core/lib/dataFiltering';
 import { toast } from 'sonner';
 
 const DEBUG = import.meta.env.DEV;
@@ -15,11 +16,14 @@ interface UsePeerTransferPushOptions {
 
 export function usePeerTransferPush({ addToReceivedData, pushDataToAll }: UsePeerTransferPushOptions) {
 
-    const loadDataByType = useCallback(async (dataType: TransferDataType): Promise<unknown> => {
+    const loadDataByType = useCallback(async (dataType: TransferDataType, filters?: DataFilters): Promise<unknown> => {
         switch (dataType) {
             case 'scouting': {
                 const { loadScoutingData } = await import('@/core/lib/scoutingDataUtils');
-                const entries = await loadScoutingData();
+                let entries = await loadScoutingData();
+                if (filters) {
+                    entries = applyFilters({ entries, version: '3.0-maneuver-core', exportedAt: Date.now() }, filters).entries;
+                }
                 debugLog('Loaded scouting data:', entries.length, 'entries');
                 return {
                     entries,
@@ -30,9 +34,10 @@ export function usePeerTransferPush({ addToReceivedData, pushDataToAll }: UsePee
             case 'pit-scouting': {
                 const { loadPitScoutingData } = await import('@/core/lib/pitScoutingUtils');
                 const data = await loadPitScoutingData();
+                const filteredEntries = filters ? filterPitScoutingEntries(data.entries, filters) : data.entries;
                 debugLog('Loaded pit scouting data:', data.entries.length, 'entries');
                 return {
-                    entries: data.entries,
+                    entries: filteredEntries,
                     version: '3.0-maneuver-core',
                     exportedAt: Date.now()
                 };
@@ -60,8 +65,11 @@ export function usePeerTransferPush({ addToReceivedData, pushDataToAll }: UsePee
                 const scouts = await gamificationDB.scouts.toArray();
                 const predictions = await gamificationDB.predictions.toArray();
                 const achievements = await gamificationDB.scoutAchievements.toArray();
+                const filteredProfiles = filters
+                    ? filterScoutProfilePayload({ scouts, predictions, achievements }, filters)
+                    : { scouts, predictions, achievements };
                 debugLog('Loaded scout profiles:', scouts.length, 'scouts');
-                return { scouts, predictions, achievements };
+                return filteredProfiles;
             }
             case 'combined': {
                 const { loadScoutingData } = await import('@/core/lib/scoutingDataUtils');
@@ -73,12 +81,16 @@ export function usePeerTransferPush({ addToReceivedData, pushDataToAll }: UsePee
                     gamificationDB.predictions.toArray()
                 ]);
 
+                const filteredEntries = filters
+                    ? applyFilters({ entries, version: '1.0', exportedAt: Date.now() }, filters).entries
+                    : entries;
+
                 const data = {
-                    entries: entries,
+                    entries: filteredEntries,
                     metadata: {
                         exportedAt: new Date().toISOString(),
                         version: "1.0",
-                        scoutingEntriesCount: entries.length,
+                        scoutingEntriesCount: filteredEntries.length,
                         scoutsCount: scouts.length,
                         predictionsCount: predictions.length
                     },
@@ -88,7 +100,7 @@ export function usePeerTransferPush({ addToReceivedData, pushDataToAll }: UsePee
                     }
                 };
                 debugLog('Loaded combined data:', {
-                    scouting: entries.length,
+                    scouting: filteredEntries.length,
                     scouts: scouts.length,
                     predictions: predictions.length
                 });
@@ -101,12 +113,13 @@ export function usePeerTransferPush({ addToReceivedData, pushDataToAll }: UsePee
 
     const pushData = useCallback(async (
         dataType: TransferDataType,
-        connectedScouts: Array<{ name: string; channel?: RTCDataChannel | null }>
+        connectedScouts: Array<{ name: string; channel?: RTCDataChannel | null }>,
+        filters?: DataFilters
     ) => {
         try {
             debugLog('📤 Pushing', dataType, 'data to all scouts');
 
-            const data = await loadDataByType(dataType);
+            const data = await loadDataByType(dataType, filters);
 
             // Push data to all scouts
             pushDataToAll(data, dataType);

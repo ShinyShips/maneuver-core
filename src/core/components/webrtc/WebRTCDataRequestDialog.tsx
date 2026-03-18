@@ -10,7 +10,7 @@ import { buildPitAssignmentsTransferPayload } from '@/core/lib/pitAssignmentTran
 import { loadScoutingData } from '@/core/lib/scoutingDataUtils';
 import { loadPitScoutingData } from '@/core/lib/pitScoutingUtils';
 import { gamificationDB as gameDB } from '@/game-template/gamification';
-import { applyFilters } from '@/core/lib/dataFiltering';
+import { applyFilters, filterPitScoutingEntries, filterScoutProfilePayload, formatTransferMatchLabel } from '@/core/lib/dataFiltering';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -77,8 +77,14 @@ export function WebRTCDataRequestDialog() {
         }
 
         case 'pit-scouting': {
-          const pitData = await loadPitScoutingData();
+          let pitData = await loadPitScoutingData();
           originalCount = pitData.entries?.length || 0;
+          if (requestFilters) {
+            pitData = {
+              ...pitData,
+              entries: filterPitScoutingEntries(pitData.entries, requestFilters)
+            };
+          }
           data = pitData;
           console.log('📊 Loaded pit scouting data:', originalCount, 'entries');
           break;
@@ -112,7 +118,9 @@ export function WebRTCDataRequestDialog() {
           const predictions = await gameDB.predictions.toArray();
           const achievements = await gameDB.scoutAchievements.toArray();
           originalCount = scouts.length;
-          data = { scouts, predictions, achievements };
+          data = requestFilters
+            ? filterScoutProfilePayload({ scouts, predictions, achievements }, requestFilters)
+            : { scouts, predictions, achievements };
           console.log('📊 Loaded scout profiles:', scouts.length, 'scouts,', predictions.length, 'predictions');
           break;
         }
@@ -131,18 +139,22 @@ export function WebRTCDataRequestDialog() {
             console.log(`📊 Filtered scouting: ${origScoutingCount} → ${scoutingData.length} entries`);
           }
 
+          const filteredScoutProfiles = requestFilters
+            ? filterScoutProfilePayload({ scouts, predictions }, requestFilters)
+            : { scouts, predictions, achievements: [] };
+
           data = {
             entries: scoutingData,
             metadata: {
               exportedAt: new Date().toISOString(),
               version: "1.0",
               scoutingEntriesCount: scoutingData.length,
-              scoutsCount: scouts.length,
-              predictionsCount: predictions.length
+              scoutsCount: filteredScoutProfiles.scouts.length,
+              predictionsCount: filteredScoutProfiles.predictions.length
             },
             scoutProfiles: {
-              scouts,
-              predictions
+              scouts: filteredScoutProfiles.scouts,
+              predictions: filteredScoutProfiles.predictions
             }
           };
           originalCount = scoutingData.length + scouts.length + predictions.length;
@@ -192,6 +204,8 @@ export function WebRTCDataRequestDialog() {
     if (!requestFilters) return 'All data';
 
     const parts: string[] = [];
+    const eventFilter = requestFilters.events ?? { selectedEvents: [], includeAll: true };
+    const scoutFilter = requestFilters.scouts ?? { selectedScouts: [], includeAll: true };
 
     // Match range
     if (requestFilters.matchRange.type === 'preset' && requestFilters.matchRange.preset !== 'all') {
@@ -203,14 +217,31 @@ export function WebRTCDataRequestDialog() {
       };
       parts.push(presetLabels[requestFilters.matchRange.preset as keyof typeof presetLabels] || 'Custom range');
     } else if (requestFilters.matchRange.type === 'custom') {
-      const start = requestFilters.matchRange.customStart || '?';
-      const end = requestFilters.matchRange.customEnd || '?';
-      parts.push(`Matches ${start}-${end}`);
+      const startLabel = requestFilters.matchRange.customStartKey
+        ? formatTransferMatchLabel(requestFilters.matchRange.customStartKey)
+        : requestFilters.matchRange.customStart || '?';
+      const endLabel = requestFilters.matchRange.customEndKey
+        ? formatTransferMatchLabel(requestFilters.matchRange.customEndKey)
+        : requestFilters.matchRange.customEnd || '?';
+      parts.push(`Matches ${startLabel}-${endLabel}`);
     }
 
     // Teams
     if (!requestFilters.teams.includeAll && requestFilters.teams.selectedTeams.length > 0) {
       parts.push(`${requestFilters.teams.selectedTeams.length} teams`);
+    }
+
+    if (!scoutFilter.includeAll && scoutFilter.selectedScouts.length > 0) {
+      parts.push(`${scoutFilter.selectedScouts.length} scouts`);
+    }
+
+    // Events
+    if (!eventFilter.includeAll && eventFilter.selectedEvents.length > 0) {
+      if (eventFilter.selectedEvents.length === 1) {
+        parts.push(`Event ${eventFilter.selectedEvents[0]}`);
+      } else {
+        parts.push(`${eventFilter.selectedEvents.length} events`);
+      }
     }
 
     return parts.length > 0 ? parts.join(' • ') : 'All data';
