@@ -16,13 +16,14 @@ const PickListPage = () => {
         alliances,
         backups,
         availableTeams,
-        eventFilteredTeamCount,
+        teamLookupTeams,
+        pickListEventTeamCount,
         newListName,
         newListDescription,
         searchFilter,
         sortBy,
         activeFilterIds,
-        eventFilter,
+        pickListEvent,
         availableEventKeys,
         activeTab,
         showAllianceSelection,
@@ -35,7 +36,7 @@ const PickListPage = () => {
         setSearchFilter,
         setSortBy,
         setActiveFilterIds,
-        setEventFilter,
+        setPickListEvent,
         setActiveTab,
         setAlliances,
         setBackups,
@@ -81,20 +82,21 @@ const PickListPage = () => {
                     alliances={alliances}
                     backups={backups}
                     availableTeams={availableTeams}
-                    eventFilteredTeamCount={eventFilteredTeamCount}
+                    teamLookupTeams={teamLookupTeams}
+                    pickListEventTeamCount={pickListEventTeamCount}
                     newListName={newListName}
                     newListDescription={newListDescription}
                     searchFilter={searchFilter}
                     sortBy={sortBy}
                     activeFilterIds={activeFilterIds}
                     hideAllianceAssignedTeams={hideAllianceAssignedTeams}
-                    eventFilter={eventFilter}
+                    pickListEvent={pickListEvent}
                     availableEventKeys={availableEventKeys}
                     onTabChange={setActiveTab}
                     onSearchChange={setSearchFilter}
                     onSortChange={setSortBy}
                     onFilterChange={setActiveFilterIds}
-                    onEventFilterChange={setEventFilter}
+                    onPickListEventChange={setPickListEvent}
                     onToggleHideAllianceAssignedTeams={setHideAllianceAssignedTeams}
                     onAddTeamToList={addTeamToList}
                     onAddTeamToAlliance={showAllianceSelection ? addTeamToAlliance : undefined}
@@ -123,19 +125,20 @@ const PickListPage = () => {
                     alliances={alliances}
                     backups={backups}
                     availableTeams={availableTeams}
-                    eventFilteredTeamCount={eventFilteredTeamCount}
+                    teamLookupTeams={teamLookupTeams}
+                    pickListEventTeamCount={pickListEventTeamCount}
                     newListName={newListName}
                     newListDescription={newListDescription}
                     searchFilter={searchFilter}
                     sortBy={sortBy}
                     activeFilterIds={activeFilterIds}
                     hideAllianceAssignedTeams={hideAllianceAssignedTeams}
-                    eventFilter={eventFilter}
+                    pickListEvent={pickListEvent}
                     availableEventKeys={availableEventKeys}
                     onSearchChange={setSearchFilter}
                     onSortChange={setSortBy}
                     onFilterChange={setActiveFilterIds}
-                    onEventFilterChange={setEventFilter}
+                    onPickListEventChange={setPickListEvent}
                     onToggleHideAllianceAssignedTeams={setHideAllianceAssignedTeams}
                     onAddTeamToList={addTeamToList}
                     onAddTeamToAlliance={showAllianceSelection ? addTeamToAlliance : undefined}

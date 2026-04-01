@@ -18,7 +18,7 @@ import type { Alliance } from "@/core/lib/allianceTypes";
 
 interface PickListCardProps {
     pickList: PickList;
-    availableTeams: TeamStats[];
+    teamLookupTeams: TeamStats[];
     alliances: Alliance[];
     canDelete: boolean;
     onDeleteList: (listId: number) => void;
@@ -28,7 +28,7 @@ interface PickListCardProps {
 
 export const PickListCard = ({
     pickList,
-    availableTeams,
+    teamLookupTeams,
     alliances,
     canDelete,
     onDeleteList,
@@ -87,7 +87,7 @@ export const PickListCard = ({
                         }}
                         renderItem={(item, order, onCompleteItem, onRemoveItem) => {
                             const teamNumber = item.teamNumber;
-                            const teamStats = availableTeams.find(t => t.teamNumber === teamNumber);
+                            const teamStats = teamLookupTeams.find(t => t.teamNumber === teamNumber);
                             return (
                                 <SortableListItem
                                     key={item.id}

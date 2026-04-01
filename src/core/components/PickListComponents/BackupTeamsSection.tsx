@@ -18,6 +18,7 @@ import type { TeamStats } from "@/core/types/team-stats";
 interface BackupTeamsSectionProps {
     backups: BackupTeam[];
     availableTeams: TeamStats[];
+    teamLookupTeams: TeamStats[];
     selectedTeams: number[];
     onUpdateBackups: (backups: BackupTeam[]) => void;
 }
@@ -25,6 +26,7 @@ interface BackupTeamsSectionProps {
 export const BackupTeamsSection = ({
     backups,
     availableTeams,
+    teamLookupTeams,
     selectedTeams,
     onUpdateBackups
 }: BackupTeamsSectionProps) => {
@@ -56,7 +58,7 @@ export const BackupTeamsSection = ({
     };
 
     const getTeamStatsObject = (teamNumber: number): TeamStats | undefined => {
-        return availableTeams.find(t => t.teamNumber === teamNumber);
+        return teamLookupTeams.find(t => t.teamNumber === teamNumber);
     };
 
     const getBackupTeamOptions = () => {

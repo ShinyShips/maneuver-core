@@ -35,6 +35,7 @@ interface AllianceSelectionTableProps {
     alliances: Alliance[];
     backups: BackupTeam[];
     availableTeams: TeamStats[];
+    teamLookupTeams: TeamStats[];
     onUpdateAlliances: (alliances: Alliance[]) => void;
     onUpdateBackups: (backups: BackupTeam[]) => void;
     onHasTeamPickListSnapshot: (teamNumber: number) => boolean;
@@ -46,6 +47,7 @@ export const AllianceSelectionTable = ({
     alliances,
     backups,
     availableTeams,
+    teamLookupTeams,
     onUpdateAlliances,
     onUpdateBackups,
     onHasTeamPickListSnapshot,
@@ -271,6 +273,7 @@ export const AllianceSelectionTable = ({
             <BackupTeamsSection
                 backups={backups}
                 availableTeams={availableTeams}
+                teamLookupTeams={teamLookupTeams}
                 selectedTeams={selectedTeams}
                 onUpdateBackups={onUpdateBackups}
             />
