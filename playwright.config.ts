@@ -16,6 +16,7 @@ export default defineConfig({
   projects: [
     {
       name: 'pr-chromium',
+      testIgnore: '**/*.heavy.spec.ts',
       use: {
         ...devices['Desktop Chrome'],
       },
