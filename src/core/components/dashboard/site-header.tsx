@@ -54,9 +54,14 @@ export function SiteHeader() {
     };
 
     // Find the correct scroll container (SidebarInset)
+    let listenerTimer: number | undefined;
+
     const addScrollListener = () => {
       // Wait for DOM to be ready
-      setTimeout(() => {
+      listenerTimer = window.setTimeout(() => {
+        if (typeof document === 'undefined') {
+          return;
+        }
         const sidebarInset = document.querySelector('main[data-slot="sidebar-inset"]') as HTMLElement;
         if (sidebarInset) {
           sidebarInset.addEventListener('scroll', handleScroll, { passive: true });
@@ -92,6 +97,9 @@ export function SiteHeader() {
     window.addEventListener('resize', handleResize);
 
     return () => {
+      if (listenerTimer !== undefined) {
+        window.clearTimeout(listenerTimer);
+      }
       removeScrollListener();
       window.removeEventListener('resize', handleResize);
     };

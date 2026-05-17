@@ -11,6 +11,15 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --ext .ts,.tsx",
+    "test": "npm run test:pr",
+    "test:unit": "vitest run",
+    "test:unit:watch": "vitest",
+    "test:e2e:pr": "playwright test --project=pr-chromium",
+    "test:e2e:heavy": "playwright test --project=heavy-chromium --project=heavy-webkit",
+    "test:e2e:update-snapshots": "playwright test --update-snapshots --project=heavy-chromium --project=heavy-webkit",
+    "test:e2e:install": "playwright install chromium webkit",
+    "test:pr": "npm run test:unit && npm run test:e2e:pr",
+    "test:heavy": "npm run test:unit && npm run test:e2e:heavy",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
     "clean": "rimraf dist"
   },
@@ -89,9 +98,13 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@playwright/test": "^1.54.1",
     "@eslint/js": "^9.15.0",
     "@netlify/functions": "^5.1.2",
     "@tailwindcss/vite": "^4.0.0-beta.6",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.6.1",
     "@types/d3": "^7.4.3",
     "@types/node": "^22.10.1",
     "@types/pako": "^2.0.4",
@@ -103,7 +116,9 @@
     "eslint": "^9.15.0",
     "eslint-plugin-react-hooks": "^5.0.0",
     "eslint-plugin-react-refresh": "^0.4.14",
+    "fake-indexeddb": "^6.2.3",
     "globals": "^15.12.0",
+    "jsdom": "^26.1.0",
     "knip": "^5.80.2",
     "netlify-cli": "^17.38.1",
     "prettier": "^3.3.3",
@@ -113,7 +128,8 @@
     "typescript": "^5.5.3",
     "typescript-eslint": "^8.15.0",
     "vite": "^5.4.11",
-    "vite-plugin-pwa": "^0.20.5"
+    "vite-plugin-pwa": "^0.20.5",
+    "vitest": "^3.2.4"
   },
   "engines": {
     "node": ">=18.0.0",
