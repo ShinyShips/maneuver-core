@@ -129,6 +129,11 @@ npm run test:e2e:update-snapshots
 
 - **PR lane** runs on every pull request through `.github/workflows/pr-lane.yml`
 - **Heavy confidence lane** runs on a weekly schedule and through manual dispatch in `.github/workflows/heavy-confidence-lane.yml`
+- The inherited **Game compatibility suite** lives in two layers:
+  - locked core contract: `src/core/testing/game-compatibility/`
+  - editable yearly layer: `src/game-template/testing/`
+- Yearly repos should sync the locked core layer unchanged, keep `src/game-template/testing/compatibilityManifest.tsx` aligned with their season implementation, and extend only `src/game-template/testing/editable-yearly/`
+- See [docs/GAME_COMPATIBILITY_SUITE.md](docs/GAME_COMPATIBILITY_SUITE.md) for the inheritance model and ownership rules
 
 ### Receiving Updates from maneuver-core
 

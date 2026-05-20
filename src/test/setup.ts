@@ -5,56 +5,60 @@ import { afterEach, vi } from 'vitest';
 import { resetTestHarnessState } from '@/core/testing/fixtures';
 import { resetOnlineState } from '@/core/testing/network';
 
-Object.defineProperty(window, 'matchMedia', {
-  configurable: true,
-  writable: true,
-  value: vi.fn().mockImplementation((query: string) => ({
-    matches: false,
-    media: query,
-    onchange: null,
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
-    addListener: vi.fn(),
-    removeListener: vi.fn(),
-    dispatchEvent: vi.fn(),
-  })),
-});
-
-Object.defineProperty(window, 'scrollTo', {
-  configurable: true,
-  writable: true,
-  value: vi.fn(),
-});
-
-Object.defineProperty(window, 'alert', {
-  configurable: true,
-  writable: true,
-  value: vi.fn(),
-});
-
-Object.defineProperty(navigator, 'vibrate', {
-  configurable: true,
-  writable: true,
-  value: vi.fn(() => true),
-});
-
-Object.defineProperty(navigator, 'serviceWorker', {
-  configurable: true,
-  writable: true,
-  value: {
-    register: vi.fn().mockResolvedValue({
+function installBrowserMocks() {
+  Object.defineProperty(window, 'matchMedia', {
+    configurable: true,
+    writable: true,
+    value: vi.fn().mockImplementation((query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
       addEventListener: vi.fn(),
-      waiting: null,
-      installing: null,
-    }),
-    ready: Promise.resolve({
-      addEventListener: vi.fn(),
-      waiting: null,
-      installing: null,
-    }),
-    controller: null,
-  },
-});
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  });
+
+  Object.defineProperty(window, 'scrollTo', {
+    configurable: true,
+    writable: true,
+    value: vi.fn(),
+  });
+
+  Object.defineProperty(window, 'alert', {
+    configurable: true,
+    writable: true,
+    value: vi.fn(),
+  });
+
+  Object.defineProperty(navigator, 'vibrate', {
+    configurable: true,
+    writable: true,
+    value: vi.fn(() => true),
+  });
+
+  Object.defineProperty(navigator, 'serviceWorker', {
+    configurable: true,
+    writable: true,
+    value: {
+      register: vi.fn().mockResolvedValue({
+        addEventListener: vi.fn(),
+        waiting: null,
+        installing: null,
+      }),
+      ready: Promise.resolve({
+        addEventListener: vi.fn(),
+        waiting: null,
+        installing: null,
+      }),
+      controller: null,
+    },
+  });
+}
+
+installBrowserMocks();
 
 class ResizeObserverMock {
   observe() {}
@@ -91,4 +95,5 @@ afterEach(async () => {
   await resetTestHarnessState();
   resetOnlineState();
   vi.restoreAllMocks();
+  installBrowserMocks();
 });
