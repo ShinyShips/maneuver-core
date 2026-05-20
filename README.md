@@ -114,6 +114,22 @@ npm run dev
 npm run build
 ```
 
+### Testing
+
+```bash
+# Fast PR-lane coverage
+npm run test:pr
+
+# Slower heavy-confidence coverage
+npm run test:heavy
+
+# Refresh heavy-lane screenshots when intentional UI changes land
+npm run test:e2e:update-snapshots
+```
+
+- **PR lane** runs on every pull request through `.github/workflows/pr-lane.yml`
+- **Heavy confidence lane** runs on a weekly schedule and through manual dispatch in `.github/workflows/heavy-confidence-lane.yml`
+
 ### Receiving Updates from maneuver-core
 
 If you want to pull bug fixes and enhancements from `maneuver-core` into your year-specific repo, you have two options:
