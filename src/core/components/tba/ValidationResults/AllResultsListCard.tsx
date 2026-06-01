@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * All Results List Card Component
  * 
@@ -9,7 +8,8 @@
 import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/core/components/ui/card';
 import { Badge } from '@/core/components/ui/badge';
-import { getStatusColor, getStatusIcon, formatMatchLabel } from '@/core/lib/validationDisplayUtils';
+import { getStatusColor, getStatusIcon } from '@/core/lib/validationDisplayUtils';
+import { formatMatchLabel } from '@/core/lib/matchValidationUtils';
 import type { MatchValidationResult } from '@/core/lib/matchValidationTypes';
 
 interface AllResultsListCardProps {

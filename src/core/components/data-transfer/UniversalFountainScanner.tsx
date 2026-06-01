@@ -65,7 +65,8 @@ export const UniversalFountainScanner = ({
   const totalPacketsRef = useRef<number | null>(null);
 
   // Helper function to add debug messages (dev-only) - uses throttled updates
-  const addDebugMsg = useCallback((_message: string) => {
+  const addDebugMsg = useCallback((message: string) => {
+    void message;
     // Debug logging disabled for performance
     return;
   }, []);

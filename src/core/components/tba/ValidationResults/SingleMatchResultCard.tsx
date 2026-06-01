@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * Single Match Result Card Component
  * 
@@ -10,7 +9,8 @@ import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/core/components/ui/card';
 import { Badge } from '@/core/components/ui/badge';
 import { FileText } from 'lucide-react';
-import { getStatusColor, getStatusIcon, formatMatchLabel } from '@/core/lib/validationDisplayUtils';
+import { getStatusColor, getStatusIcon } from '@/core/lib/validationDisplayUtils';
+import { formatMatchLabel } from '@/core/lib/matchValidationUtils';
 import { AllianceResultSection } from './AllianceResultSection';
 import type { MatchValidationResult } from '@/core/lib/matchValidationTypes';
 

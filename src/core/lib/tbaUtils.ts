@@ -1,4 +1,3 @@
-// @ts-nocheck
 // The Blue Alliance API utilities
 const TBA_BASE_URL = 'https://www.thebluealliance.com/api/v3';
 // Replace this with your actual TBA API key from https://www.thebluealliance.com/account
@@ -184,34 +183,62 @@ export const getMatchResult = (match: TBAMatch): {
 };
 
 // Build match key from event key and match number
-export const buildMatchKey = (eventKey: string, matchNumber: number, compLevel: string = 'qm'): string => {
-  return `${eventKey}_${compLevel}${matchNumber}`;
+export const buildMatchKey = (
+  eventKey: string,
+  matchNumber: number,
+  compLevel: string = 'qm',
+  setNumber: number = 1,
+): string => {
+  if (compLevel === 'qm') {
+    return `${eventKey}_qm${matchNumber}`;
+  }
+
+  return `${eventKey}_${compLevel}${setNumber}m${matchNumber}`;
 };
 
-// Parse match number from match key
+// Parse match key components
 export const parseMatchKey = (matchKey: string): {
   eventKey: string;
   compLevel: string;
+  setNumber: number;
   matchNumber: number;
 } => {
   const parts = matchKey.split('_');
   if (parts.length !== 2) {
-    throw new Error('Invalid match key format');
+    throw new Error(`Invalid match key format: ${matchKey}`);
   }
 
   const eventKey = parts[0];
   const matchPart = parts[1];
-  
-  // Extract comp level (qm, sf, f, etc.) and match number
-  const compLevelMatch = matchPart.match(/^([a-z]+)(\d+)$/);
-  if (!compLevelMatch) {
-    throw new Error('Invalid match key format');
+  if (!eventKey || !matchPart) {
+    throw new Error(`Invalid match key format: ${matchKey}`);
   }
 
-  const compLevel = compLevelMatch[1];
-  const matchNumber = parseInt(compLevelMatch[2]);
+  if (matchPart.startsWith('qm')) {
+    const matchNumberText = matchPart.slice(2);
+    const matchNumber = Number.parseInt(matchNumberText, 10);
+    if (!matchNumberText || Number.isNaN(matchNumber)) {
+      throw new Error(`Invalid match key format: ${matchKey}`);
+    }
 
-  return { eventKey, compLevel, matchNumber };
+    return { eventKey, compLevel: 'qm', setNumber: 1, matchNumber };
+  }
+
+  const playoffMatch = matchPart.match(/^([a-z]+)(\d+)m(\d+)$/);
+  const compLevel = playoffMatch?.[1];
+  const setNumberText = playoffMatch?.[2];
+  const matchNumberText = playoffMatch?.[3];
+  if (!compLevel || !setNumberText || !matchNumberText) {
+    throw new Error(`Invalid match key format: ${matchKey}`);
+  }
+
+  const setNumber = Number.parseInt(setNumberText, 10);
+  const matchNumber = Number.parseInt(matchNumberText, 10);
+  if (Number.isNaN(setNumber) || Number.isNaN(matchNumber)) {
+    throw new Error(`Invalid match key format: ${matchKey}`);
+  }
+
+  return { eventKey, compLevel, setNumber, matchNumber };
 };
 
 /**

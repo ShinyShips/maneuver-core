@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * TBA Match Data Utilities - 2025 REEFSCAPE
  * 
@@ -324,17 +323,19 @@ export function parseMatchKey(matchKey: string): {
   
   const eventKey = parts[0];
   const matchPart = parts[1];
+  if (!eventKey || !matchPart) {
+    throw new Error(`Invalid match key format: ${matchKey}`);
+  }
   
   // Extract comp level and match number
   // e.g., "qm1" -> compLevel="qm", matchNumber="1"
   // e.g., "f1m1" -> compLevel="f", matchNumber="1m1" (keep playoff format)
   const match = matchPart.match(/^([a-z]+)(.+)$/);
-  if (!match) {
+  const compLevel = match?.[1];
+  const matchNumber = match?.[2];
+  if (!compLevel || !matchNumber) {
     throw new Error(`Invalid match key format: ${matchKey}`);
   }
-  
-  const compLevel = match[1];
-  const matchNumber = match[2];
   
   return { eventKey, compLevel, matchNumber };
 }

@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-
 class SimpleGA4 {
   private measurementId = 'G-QC65PEFPDJ';
   private initialized = false;
