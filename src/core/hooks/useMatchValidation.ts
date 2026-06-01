@@ -86,6 +86,15 @@ interface UseMatchValidationReturn {
     getMatchResult: (matchKey: string) => MatchValidationResult | null;
 }
 
+type MatchScoutingEntry = {
+    matchKey: string;
+    matchNumber: number;
+    teamNumber: number;
+    allianceColor: 'red' | 'blue';
+    scoutName: string;
+    gameData: Record<string, unknown>;
+};
+
 // Default filters
 const DEFAULT_FILTERS: MatchFilters = {
     status: 'all',
@@ -153,10 +162,7 @@ export function useMatchValidation({
 
             for (const item of items) {
                 // Find scouting entries for this match
-                const matchEntries = scoutingEntries.filter(
-                    entry => entry.matchKey === item.matchKey ||
-                        entry.matchNumber === item.matchNumber
-                );
+                const matchEntries = filterScoutingEntriesForMatch(scoutingEntries, item.matchKey);
 
                 // Count scouted teams per alliance
                 const redScouted = new Set(
@@ -236,7 +242,7 @@ export function useMatchValidation({
             }
 
             // Get scouting entries for this match
-            const entries = await getScoutingEntriesForMatch(eventKey, match.matchKey, match.matchNumber);
+            const entries = await getScoutingEntriesForMatch(eventKey, match.matchKey);
             console.log('[Validation] Found', entries.length, 'scouting entries for:', match.matchKey);
 
             if (entries.length === 0) {
@@ -485,14 +491,7 @@ export function useMatchValidation({
 /**
  * Get scouting entries for an event from IndexedDB
  */
-async function getScoutingEntriesForEvent(eventKey: string): Promise<Array<{
-    matchKey: string;
-    matchNumber: number;
-    teamNumber: number;
-    allianceColor: 'red' | 'blue';
-    scoutName: string;
-    gameData: Record<string, unknown>;
-}>> {
+async function getScoutingEntriesForEvent(eventKey: string): Promise<MatchScoutingEntry[]> {
     // This would query your scouting database
     // For now, return empty array - implement based on your DB schema
     try {
@@ -515,16 +514,17 @@ async function getScoutingEntriesForEvent(eventKey: string): Promise<Array<{
  */
 async function getScoutingEntriesForMatch(
     eventKey: string,
-    matchKey: string,
-    matchNumber: number
-): Promise<Array<{
-    teamNumber: number;
-    allianceColor: 'red' | 'blue';
-    scoutName: string;
-    gameData: Record<string, unknown>;
-}>> {
+    matchKey: string
+): Promise<MatchScoutingEntry[]> {
     const entries = await getScoutingEntriesForEvent(eventKey);
-    return entries.filter(e => e.matchKey === matchKey || e.matchNumber === matchNumber);
+    return filterScoutingEntriesForMatch(entries, matchKey);
+}
+
+export function filterScoutingEntriesForMatch<T extends { matchKey: string }>(
+    entries: T[],
+    matchKey: string
+): T[] {
+    return entries.filter(entry => entry.matchKey === matchKey);
 }
 
 /**
