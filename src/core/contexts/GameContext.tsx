@@ -17,7 +17,6 @@ import type {
   DataTransformation
 } from '@/types';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 interface GameContextValue {
   config: GameConfig;
   scoring: ScoringCalculations<any>;

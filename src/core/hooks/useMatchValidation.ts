@@ -146,32 +146,7 @@ export function useMatchValidation({
     // Update Match List when TBA data changes
     // ============================================================================
 
-    useEffect(() => {
-        if (!tbaMatches || tbaMatches.length === 0) return;
-
-        const updateMatchList = async () => {
-            // Create match list items from TBA data
-            const items = tbaMatches.map(createMatchListItem);
-
-            // Load scouting data to check which matches have been scouted
-            await updateScoutingStatus(items);
-
-            // Load existing validation results
-            await loadValidationResults(items);
-
-            // Sort by match number
-            const sorted = sortMatchList(items);
-            setMatchList(sorted);
-        };
-
-        updateMatchList();
-    }, [tbaMatches]);
-
-    // ============================================================================
-    // Update Scouting Status
-    // ============================================================================
-
-    const updateScoutingStatus = async (items: MatchListItem[]) => {
+    const updateScoutingStatus = useCallback(async (items: MatchListItem[]) => {
         try {
             // Get all scouting entries for the event from IndexedDB
             const scoutingEntries = await getScoutingEntriesForEvent(eventKey);
@@ -203,13 +178,13 @@ export function useMatchValidation({
         } catch (err) {
             console.error('Failed to update scouting status:', err);
         }
-    };
+    }, [eventKey]);
 
     // ============================================================================
     // Load Validation Results
     // ============================================================================
 
-    const loadValidationResults = async (items: MatchListItem[]) => {
+    const loadValidationResults = useCallback(async (items: MatchListItem[]) => {
         try {
             const dbResults = await getEventValidationResults(eventKey);
             const resultsMap = new Map<string, MatchValidationResult>();
@@ -230,68 +205,30 @@ export function useMatchValidation({
         } catch (err) {
             console.error('Failed to load validation results:', err);
         }
-    };
+    }, [eventKey]);
 
-    // ============================================================================
-    // Validate Event
-    // ============================================================================
+    useEffect(() => {
+        if (!tbaMatches || tbaMatches.length === 0) return;
 
-    const validateEvent = useCallback(async () => {
-        if (!eventKey) return;
+        const updateMatchList = async () => {
+            // Create match list items from TBA data
+            const items = tbaMatches.map(createMatchListItem);
 
-        // Load matches first if not already loaded
-        if (matchList.length === 0) {
-            await loadMatches();
-            // After loading, the effect will update matchList, so we return and let user click again
-            toast.info('Matches loaded. Click "Validate Event" again to run validation.');
-            return;
-        }
+            // Load scouting data to check which matches have been scouted
+            await updateScoutingStatus(items);
 
-        setIsValidating(true);
-        setError(null);
+            // Load existing validation results
+            await loadValidationResults(items);
 
-        const matchesToValidate = matchList.filter(m => m.hasScouting && m.hasTBAResults);
+            // Sort by match number
+            const sorted = sortMatchList(items);
+            setMatchList(sorted);
+        };
 
-        try {
-            let validated = 0;
-            const newResults = new Map(validationResults);
+        void updateMatchList();
+    }, [tbaMatches, loadValidationResults, updateScoutingStatus]);
 
-            for (const match of matchesToValidate) {
-                setProgress({
-                    current: validated,
-                    total: matchesToValidate.length,
-                    currentMatch: match.displayName,
-                    phase: 'validating',
-                });
-
-                const result = await validateSingleMatch(match);
-                if (result) {
-                    newResults.set(match.matchKey, result);
-                    match.validationResult = result;
-                }
-
-                validated++;
-            }
-
-            setValidationResults(newResults);
-            setMatchList([...matchList]);  // Trigger re-render
-
-            toast.success(`Validated ${validated} matches`);
-        } catch (err) {
-            const message = err instanceof Error ? err.message : 'Validation failed';
-            setError(message);
-            toast.error(message);
-        } finally {
-            setIsValidating(false);
-            setProgress(null);
-        }
-    }, [eventKey, matchList, validationResults, loadMatches]);
-
-    // ============================================================================
-    // Validate Single Match
-    // ============================================================================
-
-    const validateSingleMatch = async (match: MatchListItem): Promise<MatchValidationResult | null> => {
+    const validateSingleMatch = useCallback(async (match: MatchListItem): Promise<MatchValidationResult | null> => {
         try {
             console.log('[Validation] Starting validation for:', match.matchKey, 'matchNumber:', match.matchNumber);
 
@@ -393,7 +330,62 @@ export function useMatchValidation({
             console.error(`[Validation] CAUGHT ERROR for ${match.matchKey}:`, err);
             return null;
         }
-    };
+    }, [config, eventKey, tbaMatches]);
+
+    // ============================================================================
+    // Validate Event
+    // ============================================================================
+
+    const validateEvent = useCallback(async () => {
+        if (!eventKey) return;
+
+        // Load matches first if not already loaded
+        if (matchList.length === 0) {
+            await loadMatches();
+            // After loading, the effect will update matchList, so we return and let user click again
+            toast.info('Matches loaded. Click "Validate Event" again to run validation.');
+            return;
+        }
+
+        setIsValidating(true);
+        setError(null);
+
+        const matchesToValidate = matchList.filter(m => m.hasScouting && m.hasTBAResults);
+
+        try {
+            let validated = 0;
+            const newResults = new Map(validationResults);
+
+            for (const match of matchesToValidate) {
+                setProgress({
+                    current: validated,
+                    total: matchesToValidate.length,
+                    currentMatch: match.displayName,
+                    phase: 'validating',
+                });
+
+                const result = await validateSingleMatch(match);
+                if (result) {
+                    newResults.set(match.matchKey, result);
+                    match.validationResult = result;
+                }
+
+                validated++;
+            }
+
+            setValidationResults(newResults);
+            setMatchList([...matchList]);  // Trigger re-render
+
+            toast.success(`Validated ${validated} matches`);
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'Validation failed';
+            setError(message);
+            toast.error(message);
+        } finally {
+            setIsValidating(false);
+            setProgress(null);
+        }
+    }, [eventKey, matchList, validationResults, loadMatches, validateSingleMatch]);
 
     const validateMatch = useCallback(async (matchKey: string): Promise<MatchValidationResult | null> => {
         const match = matchList.find(m => m.matchKey === matchKey);
@@ -414,7 +406,7 @@ export function useMatchValidation({
         } finally {
             setIsValidating(false);
         }
-    }, [matchList, validationResults]);
+    }, [matchList, validationResults, validateSingleMatch]);
 
     // ============================================================================
     // Refresh and Clear
@@ -425,7 +417,7 @@ export function useMatchValidation({
             await loadValidationResults([...matchList]);
             setMatchList([...matchList]);
         }
-    }, [matchList]);
+    }, [loadValidationResults, matchList]);
 
     const clearResults = useCallback(async () => {
         if (!eventKey) return;
@@ -477,7 +469,7 @@ export function useMatchValidation({
         if (autoLoad && eventKey) {
             loadMatches();
         }
-    }, [eventKey, autoLoad]);
+    }, [eventKey, autoLoad, loadMatches]);
 
     return {
         isLoading: isLoading || tbaLoading,

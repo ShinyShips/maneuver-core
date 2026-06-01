@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * TBA Data Caching with IndexedDB
  * 
@@ -134,7 +133,12 @@ export async function cacheTBAMatches(
   
   // Update metadata
   if (matches.length > 0) {
-    const eventKey = matches[0].event_key;
+    const firstMatch = matches[0];
+    if (!firstMatch) {
+      return;
+    }
+
+    const eventKey = firstMatch.event_key;
     const qualMatches = matches.filter(m => m.comp_level === 'qm');
     const playoffMatches = matches.filter(m => m.comp_level !== 'qm');
     

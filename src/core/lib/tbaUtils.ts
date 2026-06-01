@@ -1,4 +1,3 @@
-// @ts-nocheck
 // The Blue Alliance API utilities
 const TBA_BASE_URL = 'https://www.thebluealliance.com/api/v3';
 // Replace this with your actual TBA API key from https://www.thebluealliance.com/account
@@ -201,15 +200,19 @@ export const parseMatchKey = (matchKey: string): {
 
   const eventKey = parts[0];
   const matchPart = parts[1];
+  if (!eventKey || !matchPart) {
+    throw new Error('Invalid match key format');
+  }
   
   // Extract comp level (qm, sf, f, etc.) and match number
   const compLevelMatch = matchPart.match(/^([a-z]+)(\d+)$/);
-  if (!compLevelMatch) {
+  const compLevel = compLevelMatch?.[1];
+  const matchNumberText = compLevelMatch?.[2];
+  if (!compLevel || !matchNumberText) {
     throw new Error('Invalid match key format');
   }
 
-  const compLevel = compLevelMatch[1];
-  const matchNumber = parseInt(compLevelMatch[2]);
+  const matchNumber = parseInt(matchNumberText, 10);
 
   return { eventKey, compLevel, matchNumber };
 };

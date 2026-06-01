@@ -705,7 +705,8 @@ export const usePickList = (eventKey?: string): UsePickListResult => {
         }
 
         setTeamMembershipSnapshots((prev) => {
-            const { [String(teamNumber)]: _removed, ...remaining } = prev;
+            const remaining = { ...prev };
+            delete remaining[String(teamNumber)];
             return remaining;
         });
     }, [teamMembershipSnapshots]);
@@ -721,7 +722,8 @@ export const usePickList = (eventKey?: string): UsePickListResult => {
                 return prev;
             }
 
-            const { [String(teamNumber)]: _removed, ...remaining } = prev;
+            const remaining = { ...prev };
+            delete remaining[String(teamNumber)];
             return remaining;
         });
     }, []);

@@ -9,6 +9,7 @@ test-results/
 
 # Production
 dist/
+dev-dist/
 build/
 
 # Misc
