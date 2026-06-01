@@ -38,6 +38,7 @@ test.describe('framework shell heavy lane', () => {
     await page.goto('/qr-transfer');
 
     await expect(page.getByRole('main').last()).toHaveScreenshot('framework-shell-qr-transfer.png');
+    await page.goto('/');
   });
 
   test('exports persisted scouting data from the JSON transfer surface', async ({ page }) => {
@@ -60,5 +61,7 @@ test.describe('framework shell heavy lane', () => {
 
     await expect(page.getByText(/Packet #1/)).toBeVisible();
     await expect(page.getByRole('button', { name: /Generate More Packets/ })).toBeVisible();
+    await page.getByRole('button', { name: 'Pause' }).click();
+    await page.goto('/');
   });
 });
