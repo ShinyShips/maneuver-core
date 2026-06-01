@@ -1,12 +1,13 @@
 name: Heavy confidence lane
 
 on:
+  pull_request:
   schedule:
     - cron: '0 12 * * 1'
   workflow_dispatch:
 
 concurrency:
-  group: heavy-confidence-lane-${{ github.ref }}
+  group: heavy-confidence-lane-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:

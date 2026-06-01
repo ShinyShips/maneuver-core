@@ -46,3 +46,13 @@ npm run test:heavy
 ```
 
 The compatibility suite runs as part of the unit layer today, so PR and heavy lanes both pick it up through `npm run test:unit`.
+
+## Real-world proof
+
+Issue `#9` was proved in the descendant repo `Maneuver-2026` on branch `chore/test-harness-integration`.
+
+- The locked core contract layer was synced forward without turning into a separate fork of the harness.
+- The yearly repo owned its `compatibilityManifest` wiring and editable season tests while leaving the inherited core contract intact.
+- The resulting yearly repo finished with a passing build and a passing Vitest run covering `10` files and `36` tests.
+
+That proof gives `maneuver-core` a concrete descendant-repo reference for future contract changes and yearly sync work.
