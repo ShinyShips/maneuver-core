@@ -183,8 +183,17 @@ export const getMatchResult = (match: TBAMatch): {
 };
 
 // Build match key from event key and match number
-export const buildMatchKey = (eventKey: string, matchNumber: number, compLevel: string = 'qm'): string => {
-  return `${eventKey}_${compLevel}${matchNumber}`;
+export const buildMatchKey = (
+  eventKey: string,
+  matchNumber: number,
+  compLevel: string = 'qm',
+  setNumber: number = 1,
+): string => {
+  if (compLevel === 'qm') {
+    return `${eventKey}_qm${matchNumber}`;
+  }
+
+  return `${eventKey}_${compLevel}${setNumber}m${matchNumber}`;
 };
 
 // Parse match key components

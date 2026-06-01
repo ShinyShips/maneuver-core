@@ -159,10 +159,11 @@ export function useMatchValidation({
         try {
             // Get all scouting entries for the event from IndexedDB
             const scoutingEntries = await getScoutingEntriesForEvent(eventKey);
+            const entriesByMatchKey = indexScoutingEntriesByMatchKey(scoutingEntries);
 
             for (const item of items) {
                 // Find scouting entries for this match
-                const matchEntries = filterScoutingEntriesForMatch(scoutingEntries, item.matchKey);
+                const matchEntries = entriesByMatchKey.get(normalizeMatchKey(item.matchKey)) ?? [];
 
                 // Count scouted teams per alliance
                 const redScouted = new Set(
@@ -356,7 +357,7 @@ export function useMatchValidation({
 
         try {
             let validated = 0;
-            const newResults = new Map(validationResults);
+            const newResults = new Map<string, MatchValidationResult>();
 
             for (const match of matchesToValidate) {
                 setProgress({
@@ -374,8 +375,8 @@ export function useMatchValidation({
                 validated++;
             }
 
-            setValidationResults(newResults);
-            setMatchList(mergeValidationResults(matchList, newResults));
+            setValidationResults(prev => mergeValidationResultMaps(prev, newResults));
+            setMatchList(prev => applyValidationResults(prev, newResults));
 
             toast.success(`Validated ${validated} matches`);
         } catch (err) {
@@ -386,7 +387,7 @@ export function useMatchValidation({
             setIsValidating(false);
             setProgress(null);
         }
-    }, [eventKey, matchList, validationResults, loadMatches, validateSingleMatch]);
+    }, [eventKey, matchList, loadMatches, validateSingleMatch]);
 
     const validateMatch = useCallback(async (matchKey: string): Promise<MatchValidationResult | null> => {
         const match = matchList.find(m => m.matchKey === matchKey);
@@ -396,16 +397,16 @@ export function useMatchValidation({
         try {
             const result = await validateSingleMatch(match);
             if (result) {
-                const newResults = new Map(validationResults);
+                const newResults = new Map<string, MatchValidationResult>();
                 newResults.set(matchKey, result);
-                setValidationResults(newResults);
-                setMatchList(mergeValidationResults(matchList, newResults));
+                setValidationResults(prev => mergeValidationResultMaps(prev, newResults));
+                setMatchList(prev => applyValidationResults(prev, newResults));
             }
             return result;
         } finally {
             setIsValidating(false);
         }
-    }, [matchList, validationResults, validateSingleMatch]);
+    }, [matchList, validateSingleMatch]);
 
     // ============================================================================
     // Refresh and Clear
@@ -426,13 +427,13 @@ export function useMatchValidation({
 
             // Clear from state
             setValidationResults(new Map());
-            setMatchList(clearValidationResults(matchList));
+            setMatchList(prev => clearValidationResults(prev));
 
             toast.success('Validation results cleared');
         } catch {
             toast.error('Failed to clear results');
         }
-    }, [eventKey, matchList]);
+    }, [eventKey]);
 
     // ============================================================================
     // Helpers
@@ -524,13 +525,34 @@ export function filterScoutingEntriesForMatch<T extends { matchKey: string }>(
     entries: T[],
     matchKey: string
 ): T[] {
-    const normalizedMatchKey = normalizeMatchKey(matchKey);
-    return entries.filter(entry => normalizeMatchKey(entry.matchKey) === normalizedMatchKey);
+    const entriesByMatchKey = indexScoutingEntriesByMatchKey(entries);
+    return entriesByMatchKey.get(normalizeMatchKey(matchKey)) ?? [];
+}
+
+function indexScoutingEntriesByMatchKey<T extends { matchKey: string }>(
+    entries: T[]
+): Map<string, T[]> {
+    const entriesByMatchKey = new Map<string, T[]>();
+
+    for (const entry of entries) {
+        const normalizedMatchKey = normalizeMatchKey(entry.matchKey);
+        const existingEntries = entriesByMatchKey.get(normalizedMatchKey);
+
+        if (existingEntries) {
+            existingEntries.push(entry);
+            continue;
+        }
+
+        entriesByMatchKey.set(normalizedMatchKey, [entry]);
+    }
+
+    return entriesByMatchKey;
 }
 
 function normalizeMatchKey(matchKey: string): string {
     const parts = matchKey.split('_');
-    return parts.length > 1 ? parts[parts.length - 1] ?? matchKey : matchKey;
+    const suffix = parts.length > 1 ? parts[parts.length - 1] : undefined;
+    return suffix ? suffix : matchKey;
 }
 
 /**
@@ -795,6 +817,29 @@ function mergeValidationResults(
         ...item,
         validationResult: results.get(item.matchKey),
     }));
+}
+
+function applyValidationResults(
+    items: MatchListItem[],
+    results: Map<string, MatchValidationResult>
+): MatchListItem[] {
+    return items.map(item => ({
+        ...item,
+        validationResult: results.get(item.matchKey) ?? item.validationResult,
+    }));
+}
+
+function mergeValidationResultMaps(
+    existing: Map<string, MatchValidationResult>,
+    incoming: Map<string, MatchValidationResult>
+): Map<string, MatchValidationResult> {
+    const merged = new Map(existing);
+
+    for (const [matchKey, result] of incoming) {
+        merged.set(matchKey, result);
+    }
+
+    return merged;
 }
 
 function clearValidationResults(items: MatchListItem[]): MatchListItem[] {
