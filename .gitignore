@@ -5,6 +5,7 @@ node_modules/
 
 # Testing
 coverage/
+test-results/
 
 # Production
 dist/
@@ -41,6 +42,16 @@ docs/CORE_COPY_PLAN.md
 docs/TYPE_VALIDATION_REPORT.md
 docs/REVIEW_CHECKLIST.md
 maneuver-core.code-workspace
+CONTEXT.md
+docs/TEST_HARNESS_PLAN.md
+docs/adr/
+
+# Local agent scaffolding (maintainer-only)
+.agents/
+AGENTS.md
+CLAUDE.md
+docs/agents/
+skills-lock.json
 
 # Local Netlify folder
 .netlify

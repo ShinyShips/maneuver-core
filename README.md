@@ -114,6 +114,27 @@ npm run dev
 npm run build
 ```
 
+### Testing
+
+```bash
+# Fast PR-lane coverage
+npm run test:pr
+
+# Slower heavy-confidence coverage
+npm run test:heavy
+
+# Refresh heavy-lane screenshots when intentional UI changes land
+npm run test:e2e:update-snapshots
+```
+
+- **PR lane** runs on every pull request through `.github/workflows/pr-lane.yml`
+- **Heavy confidence lane** runs on pull requests, a weekly schedule, and manual dispatch in `.github/workflows/heavy-confidence-lane.yml`
+- The inherited **Game compatibility suite** lives in two layers:
+  - locked core contract: `src/core/testing/game-compatibility/`
+  - editable yearly layer: `src/game-template/testing/`
+- Yearly repos should sync the locked core layer unchanged, keep `src/game-template/testing/compatibilityManifest.tsx` aligned with their season implementation, and extend only `src/game-template/testing/editable-yearly/`
+- See [docs/GAME_COMPATIBILITY_SUITE.md](docs/GAME_COMPATIBILITY_SUITE.md) for the inheritance model and ownership rules
+
 ### Receiving Updates from maneuver-core
 
 If you want to pull bug fixes and enhancements from `maneuver-core` into your year-specific repo, you have two options:
