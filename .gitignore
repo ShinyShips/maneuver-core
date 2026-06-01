@@ -44,3 +44,18 @@ maneuver-core.code-workspace
 
 # Local Netlify folder
 .netlify
+
+# AI workflow artifacts
+.agents/
+.copilot/
+.claude/
+.continue/
+.cursor/
+.windsurf/
+.codeium/
+AGENTS.md
+CLAUDE.md
+CONTEXT.md
+docs/agents/
+docs/adr/
+skills-lock.json
