@@ -187,10 +187,11 @@ export const buildMatchKey = (eventKey: string, matchNumber: number, compLevel: 
   return `${eventKey}_${compLevel}${matchNumber}`;
 };
 
-// Parse match number from match key
+// Parse match key components
 export const parseMatchKey = (matchKey: string): {
   eventKey: string;
   compLevel: string;
+  setNumber: number;
   matchNumber: number;
 } => {
   const parts = matchKey.split('_');
@@ -211,19 +212,24 @@ export const parseMatchKey = (matchKey: string): {
       throw new Error(`Invalid match key format: ${matchKey}`);
     }
 
-    return { eventKey, compLevel: 'qm', matchNumber };
+    return { eventKey, compLevel: 'qm', setNumber: 1, matchNumber };
   }
 
   const playoffMatch = matchPart.match(/^([a-z]+)(\d+)m(\d+)$/);
   const compLevel = playoffMatch?.[1];
+  const setNumberText = playoffMatch?.[2];
   const matchNumberText = playoffMatch?.[3];
-  if (!compLevel || !matchNumberText) {
+  if (!compLevel || !setNumberText || !matchNumberText) {
     throw new Error(`Invalid match key format: ${matchKey}`);
   }
 
+  const setNumber = Number.parseInt(setNumberText, 10);
   const matchNumber = Number.parseInt(matchNumberText, 10);
+  if (Number.isNaN(setNumber) || Number.isNaN(matchNumber)) {
+    throw new Error(`Invalid match key format: ${matchKey}`);
+  }
 
-  return { eventKey, compLevel, matchNumber };
+  return { eventKey, compLevel, setNumber, matchNumber };
 };
 
 /**
