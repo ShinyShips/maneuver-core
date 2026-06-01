@@ -521,13 +521,13 @@ async function getScoutingEntriesForMatch(
     return filterScoutingEntriesForMatch(entries, matchKey);
 }
 
-export function filterScoutingEntriesForMatch<T extends { matchKey: string }>(
+export const filterScoutingEntriesForMatch = <T extends { matchKey: string }>(
     entries: T[],
     matchKey: string
-): T[] {
+): T[] => {
     const entriesByMatchKey = indexScoutingEntriesByMatchKey(entries);
     return entriesByMatchKey.get(normalizeMatchKey(matchKey)) ?? [];
-}
+};
 
 function indexScoutingEntriesByMatchKey<T extends { matchKey: string }>(
     entries: T[]
