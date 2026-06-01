@@ -24,6 +24,7 @@ test.describe('framework shell heavy lane', () => {
     await page.goto('/');
 
     await expect(page.getByRole('main').last()).toHaveScreenshot('framework-shell-home.png');
+    await page.goto('/');
   });
 
   test('captures the JSON transfer visual baseline', async ({ page }) => {
@@ -31,6 +32,7 @@ test.describe('framework shell heavy lane', () => {
     await page.goto('/json-transfer');
 
     await expect(page.getByRole('main').last()).toHaveScreenshot('framework-shell-json-transfer.png');
+    await page.goto('/');
   });
 
   test('captures the QR transfer visual baseline', async ({ page }) => {
@@ -50,6 +52,7 @@ test.describe('framework shell heavy lane', () => {
 
     const download = await downloadPromise;
     expect(download.suggestedFilename()).toContain('ManeuverScoutingData-');
+    await page.goto('/');
   });
 
   test('generates QR fountain packets from persisted scouting data', async ({ page }) => {
