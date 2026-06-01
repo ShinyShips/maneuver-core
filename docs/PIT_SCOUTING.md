@@ -1,180 +1,64 @@
-# Pit Scouting Page
+# Pit scouting
 
-## Overview
+The Pit Scouting page is a shell-owned form flow with an optional yearly-owned question section.
 
-The Pit Scouting page allows scouts to collect technical specifications and photos of robots during the pit scouting phase of competitions. This data complements match scouting by providing static robot capabilities.
+## Current page structure
 
-## Features
+`src/core/pages/PitScoutingPage.tsx` renders shared sections for:
 
-### 1. Team Selection
-- Numeric input for team number
-- Validation against event team list
-- Previous entry detection (edit vs. new)
+- basic information
+- robot photo capture
+- technical specifications
+- additional notes
 
-### 2. Technical Questions
-- Configurable questions per game year
-- Multiple input types (text, number, select, checkbox)
-- Required field validation
+It also reads `ui.PitScoutingQuestions` from `GameProvider` and renders that section when the yearly repo provides it.
 
-### 3. Robot Photos
-- Camera integration for capturing robot images
-- Multiple photo support
-- Gallery view of captured images
+## Current form behavior
 
-### 4. Entry Management
-- Save/update entries
-- View existing entries
-- Delete capability
+`usePitScoutingForm()` manages the form state and currently:
 
-## Architecture
+- seeds `eventKey` and `currentScout` from local storage
+- validates required universal fields
+- saves to IndexedDB through `savePitScoutingEntry(...)`
+- supports manual loading of an existing entry for the same team and event
+- falls back to the latest prior-event entry for the same team when no event-specific entry exists
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                       PitScoutingPage                               │
-│  - Form-based data collection                                       │
-│  - Photo capture integration                                        │
-└─────────────────────────────────────────────────────────────────────┘
-                                 │
-            ┌────────────────────┼────────────────────┐
-            ▼                    ▼                    ▼
-┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐
-│ Pit Scouting     │  │ Camera/Photo     │  │ Pit Scouting     │
-│ Form             │  │ Capture          │  │ Database         │
-│                  │  │                  │  │                  │
-│ - Team input     │  │ - MediaDevices   │  │ - IndexedDB      │
-│ - Questions      │  │ - Image preview  │  │ - Image storage  │
-└──────────────────┘  └──────────────────┘  └──────────────────┘
-```
+## Pit assignment integration
 
-## Core Types
+The current page also integrates with the pit-assignment transfer flow.
 
-**Location:** `src/core/types/pit-scouting.ts`
+It can:
 
-```typescript
-interface PitScoutingEntryBase {
-    id: string;              // Unique entry ID
-    teamNumber: number;      // Team being scouted
-    eventKey: string;        // Event identifier
-    scoutName: string;       // Scout who collected data
-    timestamp: number;       // Collection time
-    gameData?: Record<string, unknown>;  // Game-specific questions
-    robotImages?: string[];  // Base64-encoded images
-}
-```
+- load assignments for the current scout and event
+- show a “My Pit Assignments” sheet
+- quick-select assigned teams
+- mark an assignment complete after a successful save
+- show sync metadata when assignments were imported from another scout
 
-## Game-Specific Configuration
+## Current data model
 
-**Location:** `src/game-template/pit-scouting-config.ts`
+The saved pit entry remains generic at the shell layer:
 
-Define pit scouting questions per game year:
+- universal fields such as team, scout, event, timestamp, photo, drivetrain, language, and notes
+- a `gameData` object for yearly-owned questions
 
-```typescript
-export const pitScoutingQuestions = [
-    {
-        id: 'driveType',
-        label: 'Drive Type',
-        type: 'select',
-        options: ['Swerve', 'Tank', 'Mecanum', 'Other'],
-        required: true
-    },
-    {
-        id: 'canClimb',
-        label: 'Can Climb?',
-        type: 'checkbox'
-    },
-    {
-        id: 'maxSpeed',
-        label: 'Max Speed (ft/s)',
-        type: 'number',
-        min: 0,
-        max: 20
-    }
-];
-```
+That keeps the shell generic while still allowing season-specific pit forms.
 
-## Database Operations
+## Ownership split
 
-**Location:** `src/core/db/database.ts`
+### Shell-owned
 
-```typescript
-// Save pit scouting entry
-await savePitScoutingEntry(entry);
+- page layout and common form sections
+- photo handling
+- IndexedDB save/load plumbing
+- assignment integration
 
-// Load entries by team
-const entries = await loadPitScoutingByTeam(teamNumber);
+### Yearly-owned
 
-// Load entry by team and event
-const entry = await loadPitScoutingByTeamAndEvent(teamNumber, eventKey);
+- optional `PitScoutingQuestions` UI
+- structure and meaning of `gameData`
 
-// Load all entries for an event
-const allEntries = await loadPitScoutingByEvent(eventKey);
+## Related docs
 
-// Delete entry
-await deletePitScoutingEntry(entryId);
-
-// Get statistics
-const stats = await getPitScoutingStats();
-// { totalEntries, teams, events, scouts }
-```
-
-## Photo Capture
-
-### Camera Access
-
-```typescript
-const stream = await navigator.mediaDevices.getUserMedia({
-    video: { facingMode: 'environment' }  // Rear camera
-});
-```
-
-### Image Processing
-
-Images are stored as base64 strings:
-
-```typescript
-const canvas = document.createElement('canvas');
-const ctx = canvas.getContext('2d');
-ctx.drawImage(video, 0, 0);
-const imageData = canvas.toDataURL('image/jpeg', 0.8);
-```
-
-### Storage Considerations
-
-- Images are compressed to 80% quality
-- Max recommended: 3-5 images per robot
-- Consider separate image export for backup
-
-## Utilities
-
-**Location:** `src/core/lib/pitScoutingUtils.ts`
-
-```typescript
-// Generate unique ID
-const id = generatePitScoutingId(entry);
-
-// Save with ID generation
-const saved = await savePitScoutingEntry(entry);
-
-// Get stats
-const stats = await getPitScoutingStats();
-```
-
-## Best Practices
-
-**DO:**
-- ✅ Take photos from multiple angles
-- ✅ Verify team number before submitting
-- ✅ Use consistent question answers
-- ✅ Note unique robot features
-
-**DON'T:**
-- ❌ Take photos without team permission
-- ❌ Submit incomplete entries
-- ❌ Duplicate entries for same team/event
-
----
-
-**Last Updated:** January 2026
-**Related Docs:**
-- `docs/DATABASE.md` - Pit scouting database details
-- `docs/JSON_DATA_TRANSFER.md` - Exporting pit scouting data
+- [TEAM_STATS.md](TEAM_STATS.md)
+- [JSON_DATA_TRANSFER.md](JSON_DATA_TRANSFER.md)

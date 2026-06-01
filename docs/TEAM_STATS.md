@@ -1,154 +1,75 @@
-# Team Stats Page
+# Team stats
 
-## Overview
+The Team Stats page is a **shell-owned analysis surface** that renders yearly-owned calculations and display definitions.
 
-The Team Stats page provides detailed statistical analysis for individual teams based on collected scouting data. It displays performance metrics, match history, and visual representations of a team's capabilities.
+## Current architecture
 
-## Features
+The page lives at `src/core/pages/TeamStatsPage.tsx` and gets its display behavior from `useTeamStats()`, which reads the current `analysis` binding from `GameProvider`.
 
-### 1. Team Selection
-- Dropdown selector for choosing a team
-- Shows teams with available data
-- Quick search by team number
+`useTeamStats()` currently provides:
 
-### 2. Performance Summary
-- Average points by phase (Auto, Teleop, Endgame)
-- Reliability metrics (climb rate, mobility rate)
-- Match count indicator
+- available teams from both scouting entries and pit scouting entries
+- available events
+- `calculateStats(...)`
+- display configuration from `analysis.getStatSections()`, `getRateSections()`, `getMatchBadges()`, and `getStartPositionConfig()`
 
-### 3. Match-by-Match Performance
-- Individual match results with point breakdown
-- Event and alliance information
-- Match Stats Dialog for detailed data
-- Comments from scouts
+## Current extension points
 
-### 4. Team Comparison (Optional)
-- Compare selected team against another
-- Side-by-side statistics
-- Visual difference indicators
+The page is generic at the top level, but still uses starter components for several tab bodies.
 
-## Architecture
+Current default component sources:
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        TeamStatsPage                                │
-│  - Team selector                                                    │
-│  - Uses useAllTeamStats hook                                        │
-└─────────────────────────────────────────────────────────────────────┘
-                                 │
-            ┌────────────────────┼────────────────────┐
-            ▼                    ▼                    ▼
-┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐
-│ Performance      │  │ Match History    │  │ MatchStatsDialog │
-│ Analysis         │  │                  │  │                  │
-│                  │  │ - Match cards    │  │ - Detailed view  │
-│ - Points summary │  │ - Point breakdow │  │ - Action counts  │
-│ - Rates          │  │ - Comments       │  │ - Start position │
-└──────────────────┘  └──────────────────┘  └──────────────────┘
-```
+- `@/game-template/components/team-stats/StatOverview`
+- `@/game-template/components/team-stats/ScoringAnalysis`
+- `@/game-template/components/team-stats/AutoAnalysis`
+- `@/game-template/components/team-stats/PerformanceAnalysis`
+- `@/game-template/components/team-stats/PitDataDisplay`
 
-## Core Components
+So the current Team Stats model is:
 
-**Location:** `src/game-template/components/team-stats/`
+1. shell-owned page frame and selectors
+2. analysis-driven stat and rate definitions
+3. starter yearly components for several detailed render sections
 
-| Component | Description |
-|-----------|-------------|
-| `PerformanceAnalysis` | Summary stats and match list |
-| `MatchStatsDialog` | Detailed match modal |
+## Filtering behavior
 
-**Location:** `src/core/components/team-stats/`
+The page supports:
 
-| Component | Description |
-|-----------|-------------|
-| `ProgressCard` | Visual progress/rate display |
+- single-team selection
+- optional comparison team
+- one or more event filters
+- local field visibility preferences
+- auto-hide for uncollected stats
 
-## Data Types
+Selected event filters are normalized before stats are calculated:
 
-**Location:** `src/core/types/team-stats.ts`
+- no event or `"all"` means all events
+- one event stays a single event filter
+- multiple selected events are passed as a string array
 
-```typescript
-interface TeamStats {
-    teamNumber: number;
-    matchCount: number;
-    matchesPlayed: number;
-    
-    // Phase averages
-    avgAutoPoints: number;
-    avgTeleopPoints: number;
-    avgEndgamePoints: number;
-    avgTotalPoints: number;
-    
-    // Rates
-    mobilityRate: number;
-    climbRate: number;
-    
-    // Match results for history
-    matchResults: MatchResult[];
-    
-    // Game-specific nested stats
-    auto: AutoStats;
-    teleop: TeleopStats;
-    endgame: EndgameStats;
-}
-```
+## Pit data integration
 
-## Key Hook: useAllTeamStats
+The page includes pit scouting in two ways:
 
-**Location:** `src/game-template/hooks/useAllTeamStats.ts`
+- team and event selectors include teams/events that exist only in pit scouting data
+- the pit tab uses a yearly-rendered pit data component, defaulting to `PitDataDisplay`
 
-```typescript
-const {
-    teamStats,        // Array of TeamStats
-    getTeamStats,     // Get stats for specific team
-    isLoading,        // Loading state
-    error,            // Error state
-    refresh           // Reload data
-} = useAllTeamStats();
-```
+## What yearly repos own
 
-## Match Stats Dialog
+- the actual statistics returned by `analysis.calculateBasicStats(...)`
+- stat sections, rate sections, match badges, and start position display config
+- starter tab components that render season-specific details
 
-The dialog shows complete match details:
+## What the shell owns
 
-### Tabs
+- overall page structure
+- selectors and event filtering
+- comparison workflow
+- field visibility settings
+- shared cards, tabs, and attribution UI
 
-1. **Scoring** - Action counts for auto and teleop
-2. **Auto** - Auto phase details with start position map
-3. **Endgame** - Climb/park status
-4. **Info** - Scout name, team number, comments
+## Related docs
 
-### Dynamic Action Rendering
-
-Actions are rendered dynamically from game data:
-
-```typescript
-{matchData.gameData?.auto && 
-    Object.entries(matchData.gameData.auto)
-        .filter(([key]) => key.endsWith('Count'))
-        .map(([key, value]) => (
-            <div key={key}>
-                <span>{formatLabel(key)}:</span>
-                <span>{value}</span>
-            </div>
-        ))
-}
-```
-
-## Customization
-
-### Adding New Stats
-
-1. Update `TeamStats` type in `src/core/types/team-stats.ts`
-2. Update calculation in `src/game-template/analysis.ts`
-3. Display in `PerformanceAnalysis.tsx`
-
-### Customizing Match Dialog
-
-Edit `src/game-template/components/team-stats/MatchStatsDialog.tsx`
-
----
-
-**Last Updated:** January 2026
-**Related Docs:**
-- `docs/STRATEGY_OVERVIEW.md` - Strategy analysis configuration
-- `src/game-template/analysis.ts` - Statistics calculation
+- [FRAMEWORK_DESIGN.md](FRAMEWORK_DESIGN.md)
+- [STRATEGY_OVERVIEW.md](STRATEGY_OVERVIEW.md)
+- [PIT_SCOUTING.md](PIT_SCOUTING.md)

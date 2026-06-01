@@ -37,7 +37,7 @@ WebRTC establishes a direct peer-to-peer connection between devices. This requir
 - ❌ Lead on venue WiFi, scouts on cellular → Won't connect
 - ❌ Devices on different hotspots → Won't connect
 
-For transfers across different networks, use [JSON file export](./JSON_DATA_TRANSFER.md) or [QR codes](./DATA_TRANSFER.md) instead.
+For transfers across different networks, use [JSON file export](./JSON_DATA_TRANSFER.md) or [QR codes](./QR_DATA_TRANSFER.md) instead.
 
 ## Architecture
 
@@ -187,6 +187,6 @@ npm run dev
 
 ## Related Documentation
 
-- [DATA_TRANSFER.md](./DATA_TRANSFER.md) - QR code fountain transfer
+- [QR_DATA_TRANSFER.md](./QR_DATA_TRANSFER.md) - QR code fountain transfer
 - [JSON_DATA_TRANSFER.md](./JSON_DATA_TRANSFER.md) - File import/export
 - [DATABASE.md](./DATABASE.md) - Data structures and storage

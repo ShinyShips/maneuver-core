@@ -401,22 +401,15 @@ const validateData = (data: unknown) => {
 - Validation before saving
 - Error handling for corrupted data
 
-## Future Enhancements
+## Possible future improvements
 
-### Phase 2 (Post-Framework)
+These are optional ideas, not committed framework phases:
 
-- **Progressive Web Workers**: Offload compression to background
-- **Batch Import**: Import multiple datasets in sequence
-- **QR History**: Track previously scanned QR codes
-- **Resume Sessions**: Continue interrupted transfers
-- **Data Preview**: Show sample data before importing
-
-### Phase 3 (Advanced Features)
-
-- **WebRTC Integration**: Direct peer-to-peer transfer
-- **Bluetooth Transfer**: Alternative to QR codes
-- **Cloud Backup**: Optional sync to cloud storage
-- **Team Sharing**: Share datasets with team members
+- move heavier compression work off the main thread
+- support multi-dataset import sessions
+- add transfer history or interrupted-session recovery
+- improve preview and validation before import
+- explore other transport options only if they preserve the offline-first baseline
 
 ## Best Practices
 

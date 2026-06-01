@@ -1,117 +1,102 @@
 # maneuver-core
 
-**A year-agnostic framework template for building FRC scouting apps**
+**The template authority for year-agnostic FRC scouting infrastructure**
 
-`maneuver-core` is the foundational framework that powers multi-year FRC scouting applications. It provides all the infrastructure you need—offline-first PWA capabilities, data transfer, match validation, and more—while remaining completely game-agnostic.
+`maneuver-core` is the shared framework shell behind season-specific scouting apps like `maneuver-2026`. It owns the year-agnostic surfaces teams should inherit unchanged: routing, persistence, transfer flows, shared pages, and the inherited test harness. Each yearly repo layers its own game bindings and game-specific UI onto that shell.
 
-## 🔗 Related Repositories
+## What this repo is responsible for
 
-| Repository | Description | Status |
-|------------|-------------|--------|
-| **maneuver-core** | Framework template (this repo) | Template |
-| **Maneuver-2025** | 2025 Reefscape implementation (pre-creation of this template) | [Live App](https://github.com/ShinyShips/Maneuver-2025) |
+- **Framework shell**: the shared React app structure, routes, layouts, contexts, and shell-owned pages
+- **Offline-first infrastructure**: IndexedDB persistence, PWA install/update plumbing, QR transfer, JSON import/export, and peer transfer wiring
+- **Shared analysis surfaces**: team stats, strategy, validation, pick lists, pit scouting, scout management, and achievements pages
+- **Template-owned contracts**: TypeScript interfaces in `src\types\game-interfaces.ts`
+- **Inherited test harness**: the core regression suite plus the game compatibility suite structure yearly repos inherit
 
-> **Note:** The `Maneuver` repo will be renamed to `maneuver-2025` to follow the year-based naming convention.
+## What yearly repos own
 
-## 🎯 What is this?
+A yearly repo should customize the `src\game-template\` layer and keep `src\core\` framework code generic.
 
-Every year, FRC teams face the same problem: rebuilding their scouting app from scratch for the new game. `maneuver-core` solves this by separating the **framework** (year-agnostic) from the **game logic** (year-specific).
+- **Game bindings**: `config`, `scoring`, `validation`, `analysis`, `transformation`, and `ui`
+- **Game-specific UI**: scouting screens, pit questions, option panels, labels, field images, and season workflows
+- **Season-specific tests**: `src\game-template\testing\editable-yearly\`
 
-**You build once, adapt annually.**
+See [CONTEXT.md](CONTEXT.md) for the shared language used in this repo, especially **template authority**, **framework shell**, **game compatibility suite**, **PR lane**, and **heavy confidence lane**.
 
-## 💡 Design Philosophy
+## Repository structure
 
-Maneuver is **not** just another scouting app with basic counters and text inputs. The official Maneuver branches are designed with a focus on creating the **best possible UI/UX for scouting**.
-
-### What sets Maneuver apart:
-
-- **Field-Centric Interfaces** — Scoring screens mirror the game field, making data collection intuitive and fast
-- **Contextual Actions** — UI elements adapt to game phases (auto/teleop/endgame) rather than showing everything at once
-- **Visual Feedback** — Animations, color coding, and haptic responses confirm every action
-- **Scout-First Design** — Optimized for the chaos of competition: large touch targets, minimal scrolling, one-handed operation
-- **Data Visualization** — Statistics presented through charts, heat maps, and comparisons—not just tables of numbers
-
-> **For teams forking this template:** We encourage you to maintain this commitment to quality UX. Your scouts will thank you, and your data quality will improve.
-
-## 🏗️ Repository Structure
-
-```
+```text
 maneuver-core/
-├── src/
-│   ├── core/                    # 📦 Framework (year-agnostic)
-│   │   ├── components/          # Reusable UI components
-│   │   ├── contexts/            # React contexts (Game, Theme, etc.)
-│   │   ├── db/                  # Dexie database setup
-│   │   ├── hooks/               # Custom React hooks
-│   │   ├── layouts/             # Page layouts
-│   │   ├── lib/                 # Utilities and helpers
-│   │   ├── pages/               # Application pages/routes
-│   │   └── types/               # TypeScript type definitions
-│   │
-│   ├── game-template/           # 🎮 Example game implementation
-│   │   ├── components/          # Game scoring screen examples
-│   │   ├── gamification/        # Achievements system
-│   │   ├── game-schema.ts       # Single source of truth for game config
-│   │   ├── scoring.ts           # Point calculations
-│   │   ├── transformation.ts    # Data transformation logic
-│   │   └── ...config files
-│   │
-│   ├── App.tsx                  # Main application entry
-│   └── main.tsx                 # React DOM render
-│
-├── docs/                        # 📚 Documentation
-└── public/                      # Static assets
+|- src/
+|  |- core/                 # Year-agnostic framework shell
+|  |- game-template/        # Starter yearly implementation layer
+|  |- types/                # Contract types and framework-facing exports
+|  |- contexts/             # Public context exports
+|  |- hooks/                # Public hook exports
+|  |- components/           # Public component exports
+|  \- db/                   # Public database exports
+|- docs/                    # User-facing framework documentation
+|- tests/                   # Browser-based framework shell coverage
+\- .github/workflows/       # PR lane and heavy confidence lane automation
 ```
 
-### Key Directories
+## Current architecture
 
-| Directory | Purpose |
-|-----------|---------|
-| `src/core/` | Year-agnostic framework code — **do not add game-specific logic here** |
-| `src/game-template/` | Example implementation — **copy and customize for your game year** |
-| `docs/` | Comprehensive documentation for framework features |
+The app entrypoint is intentionally thin:
 
-## ✨ Features
+```tsx
+import { FrameworkShell } from '@/core/app/frameworkShell';
 
-- **Offline-First PWA**: Works without internet, installs like a native app
-- **Match Scouting**: Pre-match setup, auto, teleop, endgame screens
-- **Pit Scouting**: Robot specifications and capabilities
-- **Data Transfer**: QR codes (fountain codes), JSON import/export, and WiFi transfer using WebRTC
-- **Match Validation**: Compare scouted data against TBA official results
-- **Team Statistics**: Averages, totals, performance analysis
-- **Match Strategy**: Pre-match planning with field annotations
-- **Pick Lists**: Alliance selection with drag-and-drop ordering
-- **Scout Gamification**: Achievements, leaderboards, and profile tracking
-- **Dark/Light Themes**: Full theme support
-- **Responsive Design**: Works on tablets and phones
+function App() {
+  return <FrameworkShell />;
+}
+```
 
-## 🚀 Quick Start
+`FrameworkShell` owns the shared routes and wraps them in `GameProvider`. By default it wires the starter implementation from `src\game-template\`, but yearly repos can replace those bindings while keeping the shell and inherited routes intact.
 
-### Using this Template
+### Shared routes in the framework shell
 
-1. **Fork or clone** this repository
-2. **Rename** to `maneuver-YYYY` (e.g., `maneuver-2026`)
-3. **Customize** `src/game-template/` for your game year
-4. **Deploy** to Netlify/Vercel
+The shell currently provides these routes out of the box:
 
-### Development
+- `/`
+- `/game-start`
+- `/auto-start`
+- `/auto-scoring`
+- `/teleop-scoring`
+- `/endgame`
+- `/clear-data`
+- `/pit-scouting`
+- `/api-data`
+- `/json-transfer`
+- `/peer-transfer`
+- `/qr-transfer`
+- `/team-stats`
+- `/strategy-overview`
+- `/match-strategy`
+- `/pick-list`
+- `/scout-management`
+- `/pit-assignments`
+- `/achievements`
+- `/match-validation`
+- `/dev-utilities`
+
+Game-specific repos can change what happens inside these flows through bindings and `src\game-template\game-schema.ts`, but the shell remains the template-owned source of truth.
+
+## Quick start
+
+### Create a yearly repo
+
+1. Use this repository as a template or fork it.
+2. Rename the new repo to `maneuver-YYYY`.
+3. Replace the starter implementation in `src\game-template\`.
+4. Keep framework code in `src\core\` game-agnostic.
+
+### Local development
 
 ```bash
-# Clone the template
 git clone https://github.com/ShinyShips/maneuver-core.git maneuver-2026
 cd maneuver-2026
-
-# Install dependencies
 npm install
-
-# Create .env from example
-cp .env.example .env
-
-# Start development server
 npm run dev
-
-# Build for production
-npm run build
 ```
 
 ### Receiving Updates from maneuver-core
@@ -150,127 +135,82 @@ git merge upstream/main
 
 ### Environment Setup
 
-Copy `.env.example` to `.env` and add your API keys:
+If you need API-backed validation or event data, copy `.env.example` to `.env` and add your keys:
 
 ```env
-# The Blue Alliance API Key
-# Get your key at: https://www.thebluealliance.com/account
 VITE_TBA_API_KEY=your_tba_api_key_here
-
-# Nexus Stats API Key (optional, for additional match data)
-# Get your key at: https://frc.nexus/
 VITE_NEXUS_API_KEY=your_nexus_api_key_here
 ```
 
-## 📚 Documentation
+## Testing model
 
-### Getting Started
-- [docs/README.md](docs/README.md) - Documentation index
+The repo uses a shared **test harness** with two execution lanes:
 
-### Architecture
-| Topic | Link |
-|-------|------|
-| Framework Design | [docs/FRAMEWORK_DESIGN.md](docs/FRAMEWORK_DESIGN.md) |
-| Architecture Strategy | [docs/ARCHITECTURE_STRATEGY.md](docs/ARCHITECTURE_STRATEGY.md) |
-| Game Components | [docs/GAME_COMPONENTS.md](docs/GAME_COMPONENTS.md) |
+- **PR lane**: `npm run test:pr`
+- **Heavy confidence lane**: `npm run test:heavy`
 
-### Feature Guides
-| Feature | Link |
-|---------|------|
-| Database | [docs/DATABASE.md](docs/DATABASE.md) |
-| PWA Setup | [docs/PWA.md](docs/PWA.md) |
-| QR Data Transfer | [docs/QR_DATA_TRANSFER.md](docs/QR_DATA_TRANSFER.md) |
-| JSON Transfer | [docs/JSON_DATA_TRANSFER.md](docs/JSON_DATA_TRANSFER.md) |
-| Peer Transfer (WebRTC) | [docs/PEER_TRANSFER.md](docs/PEER_TRANSFER.md) |
-| Data Transformation | [docs/DATA_TRANSFORMATION.md](docs/DATA_TRANSFORMATION.md) |
+Supporting commands:
 
-### Page Documentation
-| Page | Link |
-|------|------|
-| Scouting Workflow | [docs/SCOUTING_WORKFLOW.md](docs/SCOUTING_WORKFLOW.md) |
-| Strategy Overview | [docs/STRATEGY_OVERVIEW.md](docs/STRATEGY_OVERVIEW.md) |
-| Match Strategy | [docs/MATCH_STRATEGY.md](docs/MATCH_STRATEGY.md) |
-| Match Validation | [docs/MATCH_VALIDATION.md](docs/MATCH_VALIDATION.md) |
-| Team Stats | [docs/TEAM_STATS.md](docs/TEAM_STATS.md) |
-| Pick Lists | [docs/PICK_LISTS.md](docs/PICK_LISTS.md) |
-| Pit Scouting | [docs/PIT_SCOUTING.md](docs/PIT_SCOUTING.md) |
-| Scout Management | [docs/SCOUT_MANAGEMENT.md](docs/SCOUT_MANAGEMENT.md) |
-| Achievements | [docs/ACHIEVEMENTS.md](docs/ACHIEVEMENTS.md) |
-
-### Developer Guides
-| Topic | Link |
-|-------|------|
-| React Contexts | [docs/CONTEXTS_GUIDE.md](docs/CONTEXTS_GUIDE.md) |
-| Hooks Reference | [docs/HOOKS_REFERENCE.md](docs/HOOKS_REFERENCE.md) |
-| Utility Hooks | [docs/UTILITY_HOOKS.md](docs/UTILITY_HOOKS.md) |
-| Navigation | [docs/NAVIGATION_SETUP.md](docs/NAVIGATION_SETUP.md) |
-
-## 🎮 Customizing for Your Game Year
-
-The `game-schema.ts` file is the **single source of truth** for your game configuration:
-
-```typescript
-// src/game-template/game-schema.ts
-export const gameSchema = {
-  year: 2025,
-  gameName: "Reefscape",
-  actions: {
-    // Define counters for scoring actions
-    autoCoralL4: { phase: "auto", points: 7 },
-    teleopAlgaeNet: { phase: "teleop", points: 4 },
-    // ...
-  },
-  toggles: {
-    // Define boolean states
-    leftStartingZone: { phase: "auto", points: 3 },
-    // ...
-  },
-};
+```bash
+npm run lint
+npm run typecheck
+npm run test:unit
+npm run test:e2e:pr
+npm run test:e2e:heavy
 ```
 
-From this schema, the framework derives:
-- Default data values
-- Point calculations
-- Strategy column configurations
-- Validation logic
+### Game compatibility suite ownership
 
-## 🛠️ Tech Stack
+Yearly repos inherit the compatibility suite in three layers:
 
-| Category | Technology |
-|----------|------------|
-| Frontend | React 18 + TypeScript + Vite |
-| Styling | Tailwind CSS + shadcn/ui |
-| Database | Dexie.js (IndexedDB) |
-| PWA | Vite PWA plugin |
-| Data Transfer | QR fountain codes + JSON |
-| API | The Blue Alliance (TBA) |
-| Deployment | Netlify / Vercel |
+| Layer | Path | Ownership |
+| --- | --- | --- |
+| Locked core contract layer | `src\core\testing\game-compatibility\` | `maneuver-core` |
+| Yearly compatibility manifest | `src\game-template\testing\compatibilityManifest.tsx` | yearly repo |
+| Editable yearly layer | `src\game-template\testing\editable-yearly\` | yearly repo |
 
-## 🤝 Contributing
+See [docs/GAME_COMPATIBILITY_SUITE.md](docs/GAME_COMPATIBILITY_SUITE.md) for the inheritance rules.
 
-Contributions are welcome! Please:
+## Customizing the starter game layer
 
-1. Keep framework changes **game-agnostic** in `src/core/`
-2. Document any new interfaces or hooks
-3. Run `npm run build` to verify no type errors
-4. Test changes manually before submitting
+The starter game implementation is intentionally schema-driven so a new yearly repo can change one place first and derive the rest.
 
-## 📝 License
+Start in:
 
-MIT License - see [LICENSE](LICENSE) for details.
+- `src\game-template\game-schema.ts`
+- `src\game-template\scoring.ts`
+- `src\game-template\analysis.ts`
+- `src\game-template\transformation.ts`
+- `src\game-template\components\`
+- `src\game-template\testing\`
 
-## 🙏 Credits
+The schema is a starter pattern, not the framework contract. The actual framework contract is the interface set exported from `src\types\game-interfaces.ts`.
 
-Developed by **Andy Nguyen (ShinyShips) - FRC Team 3314 Alumni and Strategy Mentor** for the FRC community.
+## Documentation map
 
-Special thanks to:
-- [The Blue Alliance](https://www.thebluealliance.com/) for their excellent API
-- [VScout](https://github.com/VihaanChhabria/VScout) by VihaanChhabria for initial inspiration
-- All the open-source libraries that make this possible
+| Topic | Link |
+| --- | --- |
+| Shared terminology | [CONTEXT.md](CONTEXT.md) |
+| Documentation index | [docs/README.md](docs/README.md) |
+| Framework contract | [docs/FRAMEWORK_DESIGN.md](docs/FRAMEWORK_DESIGN.md) |
+| Architecture strategy | [docs/ARCHITECTURE_STRATEGY.md](docs/ARCHITECTURE_STRATEGY.md) |
+| Game compatibility suite | [docs/GAME_COMPATIBILITY_SUITE.md](docs/GAME_COMPATIBILITY_SUITE.md) |
 
-## 📞 Support
+## Syncing updates into a yearly repo
 
-- **Issues**: [GitHub Issues](https://github.com/ShinyShips/maneuver-core/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/ShinyShips/maneuver-core/discussions)
+If a yearly repo forked `maneuver-core`, pull updates from `upstream`:
 
----
+```bash
+git fetch upstream
+git merge upstream/main
+```
+
+If a yearly repo was created from the template without shared history:
+
+```bash
+git remote add upstream https://github.com/ShinyShips/maneuver-core.git
+git fetch upstream
+git merge upstream/main --allow-unrelated-histories
+```
+
+When resolving conflicts, keep **yearly repo** changes inside `src\game-template\` and prefer **upstream** changes inside `src\core\` unless the yearly repo intentionally extended a shell-owned contract.

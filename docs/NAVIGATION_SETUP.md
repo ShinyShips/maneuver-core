@@ -294,8 +294,8 @@ function CustomLayout() {
 ## Next Steps
 
 - See [FRAMEWORK_DESIGN.md](./FRAMEWORK_DESIGN.md) for architectural details
-- Check out [PWA_GUIDE.md](./PWA_GUIDE.md) for PWA setup
-- Read [DATA_TRANSFER.md](./DATA_TRANSFER.md) for QR/WebRTC integration
+- Check out [PWA.md](./PWA.md) for PWA setup
+- Read [QR_DATA_TRANSFER.md](./QR_DATA_TRANSFER.md) and [PEER_TRANSFER.md](./PEER_TRANSFER.md) for transfer integration
 
 ---
 

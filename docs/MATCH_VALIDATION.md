@@ -57,11 +57,13 @@ core/
     └── scoutingDatabase.ts        # Scouting data queries
 ```
 
-## Game-Template Customization
+## Current customization boundary
 
-Match Validation uses the game-schema for scoring comparisons. The following exports are required:
+Match Validation is still partly schema-driven in the current implementation.
 
-### Required in `game-schema.ts`
+Today, `useMatchValidation` reads action and toggle mappings directly from `src/game-template/game-schema.ts`:
+
+### Required in `game-schema.ts` today
 
 ```typescript
 // Export these functions for validation to work:
@@ -76,7 +78,9 @@ export function getAllMappedToggleKeys(): string[] {
 }
 ```
 
-### TBA Score Mapping
+The page also relies on the yearly repo's validation configuration and score semantics.
+
+### TBA score mapping
 
 The validation compares these score categories:
 - **autoPoints** - Autonomous phase scoring
@@ -171,8 +175,12 @@ gameData: {
 
 The validation flattens this structure when aggregating.
 
+## Contract note
+
+The broader framework contract also exposes `ValidationRules<T>` through `GameProvider`, but the current validation page and hook still use `game-schema.ts` mappings directly. Treat this as an active hybrid area of the framework.
+
 ## Related Documentation
 
-- [HOOKS_GUIDE.md](HOOKS_GUIDE.md) - `useMatchValidation` hook reference
+- [HOOKS_REFERENCE.md](HOOKS_REFERENCE.md) - `useMatchValidation` hook reference
 - [DATABASE.md](DATABASE.md) - IndexedDB schema
 - [DATA_TRANSFORMATION.md](DATA_TRANSFORMATION.md) - How scouting data is structured

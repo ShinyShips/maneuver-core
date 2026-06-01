@@ -1,127 +1,73 @@
-# Pit Assignments
+# Pit assignments
 
-**Framework Component - Game-Agnostic**
+The Pit Assignments page is the shell-owned coordination view for distributing pit scouting work across scouts.
 
-Manage scout assignments for pit scouting at FRC events. Automatically divide teams among scouts using sequential or spatial (proximity-based) algorithms.
+## Current page behavior
 
-## Overview
+`src/core/pages/PitAssignmentsPage.tsx` currently:
 
-The Pit Assignments system helps lead scouts organize and track pit scouting work by:
+- loads one active event, preferring Nexus team data over TBA team data when both exist
+- combines locally managed scouts with currently connected WebRTC scouts
+- stores assignments per event in local storage
+- tracks completion by checking whether pit scouting entries already exist
+- refreshes team and completion status when the page regains focus
+- can push assignment payloads to connected scouts over the peer-transfer channel
 
-1. **Managing Scouts**: Add/remove scouts who will visit pits
-2. **Generating Assignments**: Automatically divide teams among available scouts
-3. **Tracking Progress**: Mark teams as completed when pit scouting is done
-4. **Persistence**: Assignments are saved per-event and restored on return
+## Current assignment modes
 
-### Key Features
+The page supports:
 
-- **Sequential Assignment**: Divide teams evenly among scouts in team number order
-- **Spatial Assignment**: Group teams by physical location using Nexus pit map data (requires Nexus API)
-- **Manual Assignment**: Assign individual teams to specific scouts
-- **Auto-Detection**: Automatically marks teams as completed when pit scouting data exists
-- **Focus Reload**: Refreshes team data when returning to the page
+- **Sequential** assignment by team number
+- **Spatial** assignment when Nexus pit-address and map data are available
+- **Manual** assignment to a selected scout
 
-## Architecture
+Spatial mode is only available when Nexus-provided pit location data exists for the active event.
 
-```
-src/core/
-├── pages/
-│   └── PitAssignmentsPage.tsx      # Main page component
-├── components/pit-assignments/
-│   ├── AssignmentControlsCard.tsx  # Mode selection & generation
-│   ├── AssignmentResults.tsx       # Table view of assignments
-│   ├── EventInformationCard.tsx    # Event summary display
-│   ├── PitMapCard.tsx              # Visual pit map (Nexus)
-│   ├── ScoutManagementSection.tsx  # Add/remove scouts
-│   ├── TeamDisplaySection.tsx      # Card view of assignments
-│   └── shared/                     # Shared utilities
-├── lib/
-│   ├── pitAssignmentTypes.ts       # Type definitions
-│   ├── pitAssignmentLogic.ts       # Assignment algorithms
-│   └── spatialClustering.ts        # K-means clustering for spatial mode
-└── hooks/
-    └── useScoutManagement.ts       # Scout list management
-```
+## Current data sources
 
-## Requirements
-
-The page requires **both** of the following to show assignment controls:
-
-1. **Team Data**: Import from TBA (API Data page) or Nexus
-2. **Scouts**: Add via the Scout Management section or Dev Utilities
-
-> [!NOTE]
-> If teams are imported after visiting the page, click away and back to trigger a refresh.
-
-## Assignment Modes
-
-### Sequential Mode
-Divides teams evenly among scouts in numerical order:
-- Scout A: Teams 1-20
-- Scout B: Teams 21-40
-- Scout C: Teams 41-60
-
-### Spatial Mode (Nexus Required)
-Groups teams by physical proximity in the pit area using K-means clustering:
-- Reduces walking distance for scouts
-- Requires Nexus pit map data with team coordinates
-- Falls back to sequential if no spatial data available
-
-### Manual Mode
-Assign individual teams to specific scouts:
-1. Select a scout from the dropdown
-2. Click teams to assign them
-3. Confirm assignments when done
-
-## Data Sources
-
-| Source | Teams | Pit Addresses | Spatial Clustering |
-|--------|-------|---------------|-------------------|
-| TBA    | ✅    | ❌            | ❌                |
-| Nexus  | ✅    | ✅            | ✅                |
+| Source | What it provides |
+| --- | --- |
+| TBA team cache | event teams |
+| Nexus team cache | event teams, pit addresses, and pit map data |
+| Scout management | selectable scout list from local storage plus scout DB backing |
+| Pit scouting entries | completion status for assigned teams |
+| WebRTC context | currently connected scouts and assignment sync |
 
 ## Persistence
 
-Assignments are stored in localStorage with key format:
-```
+Assignments are stored in local storage under per-event keys:
+
+```text
 pit_assignments_{eventKey}
 ```
 
-This allows different assignments per event and restoration on page reload.
+This keeps assignment planning local-first and resilient during an event.
 
-## Integration
+## Relationship to pit scouting
 
-### With Pit Scouting
-The page automatically checks for existing pit scouting data:
-- Teams with completed pit scouting entries are marked as "completed"
-- Status updates when the page regains focus
+The page is tightly linked to the Pit Scouting flow:
 
-### With Scout Management
-Uses the shared `useScoutManagement` hook for scout list:
-- Scouts added here appear in assignment dropdowns
-- Changes are reflected across the app
+- teams with saved pit entries are marked complete
+- returning from pit scouting updates completion state
+- the pit scouting page can consume assignment data and mark entries complete from the scout-facing side
 
-## Troubleshooting
+## Scout source of truth
 
-### "No team data found"
-**Solution**: Go to API Data page and import teams from TBA or Nexus.
+`useScoutManagement()` currently treats local storage as the source of truth for the selectable scout list, then ensures those scouts also exist in the scout database for gamification and dashboard features.
 
-### Generate button not appearing
-**Cause**: Missing teams or scouts
-**Solution**: Ensure both are loaded, then click away and back to refresh.
+That means pit assignments should be documented as using the **shared selectable scout list**, not as owning a separate scout roster.
 
-### Spatial mode not available
-**Cause**: No Nexus pit map data
-**Solution**: Use Nexus API on API Data page to import pit coordinates.
+## Current requirements
 
-## Route
+To use assignment generation effectively, you need:
 
-```
-/pit-assignments
-```
+1. event team data already imported from TBA or Nexus
+2. at least one scout in the shared selectable scout list
 
-## Related Docs
+If data is imported after the page is already open, the page refreshes that state when focus returns.
 
-- [Pit Scouting](./PIT_SCOUTING.md) - The scouting form scouts fill out
-- [Scout Management](./SCOUT_MANAGEMENT.md) - Managing scout profiles
-- [API Data](./API_DATA.md) - Importing team data from TBA/Nexus
+## Related docs
+
+- [PIT_SCOUTING.md](PIT_SCOUTING.md)
+- [SCOUT_MANAGEMENT.md](SCOUT_MANAGEMENT.md)
+- [PEER_TRANSFER.md](PEER_TRANSFER.md)

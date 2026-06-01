@@ -895,37 +895,16 @@ const csv = rows.map(row => row.join(',')).join('\n');
 
 ---
 
-## Future Enhancements
+## Possible future improvements
 
-### Potential Improvements
+These are optional ideas, not a committed roadmap:
 
-1. **Incremental Export**
-   - Export only data added since last export
-   - Reduces file size for frequent backups
-
-2. **Export Presets**
-   - Save commonly used export configurations
-   - One-click "export everything" button
-
-3. **Cloud Sync**
-   - Direct sync to Google Drive/Dropbox
-   - Automatic backup every N minutes
-
-4. **Conflict Diff Highlighting**
-   - Visual highlighting of changed fields
-   - Side-by-side comparison with color coding
-
-5. **Import Preview**
-   - Show what will be added/replaced before committing
-   - "Dry run" mode
-
-6. **Scheduled Exports**
-   - Auto-export every hour during competition
-   - Background export without user action
-
-7. **Compression**
-   - Compress JSON files to reduce size
-   - Especially helpful for images
+1. **Incremental export**
+2. **Export presets**
+3. **Richer conflict diffs**
+4. **Import preview or dry-run mode**
+5. **Scheduled exports**
+6. **Additional compression options**
 
 ---
 

@@ -321,12 +321,9 @@ if (userConfirmsLeaving) {
 - `EndgamePage.tsx` - After successful match submission
 - `useNavigationConfirm.ts` - When user confirms leaving mid-match
 
-## Future: Phase 2/3
+## Current boundary
 
-When we extract to npm packages (Phase 2), this transformation will be:
-- **Core framework:** Defines `DataTransformation` interface
-- **Game package:** Exports `gameDataTransformation` implementation
-- **Zero changes needed** to existing code!
+Today, `maneuver-core` already defines the `DataTransformation` boundary and the yearly layer supplies the concrete `gameDataTransformation` implementation. Keep future architectural ideas out of this guide unless they are actively implemented.
 
 ---
 

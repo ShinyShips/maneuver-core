@@ -1,74 +1,61 @@
-# maneuver-core Documentation
+# maneuver-core documentation
 
-This folder contains documentation for teams using the maneuver-core framework template.
+This folder is the user-facing documentation set for the **template authority**. Start with the contract and navigation docs first, then work outward into feature and page guides.
 
-## Getting Started
+## Read these first
 
-**Start here:**
+1. [../CONTEXT.md](../CONTEXT.md) - Shared language for the framework shell, yearly repos, and test harness
+2. [FRAMEWORK_DESIGN.md](FRAMEWORK_DESIGN.md) - Current framework contract and yearly integration points
+3. [ARCHITECTURE_STRATEGY.md](ARCHITECTURE_STRATEGY.md) - Architecture direction and ownership boundaries
+4. [GAME_COMPATIBILITY_SUITE.md](GAME_COMPATIBILITY_SUITE.md) - Locked vs editable testing layers
 
-1. 📐 **[FRAMEWORK_DESIGN.md](FRAMEWORK_DESIGN.md)** - Interface specifications and architecture
-2. 🎮 **[GAME_COMPONENTS.md](GAME_COMPONENTS.md)** - How to customize game-specific components
-3. 🏗️ **[ARCHITECTURE_STRATEGY.md](ARCHITECTURE_STRATEGY.md)** - Multi-year vision and design decisions
+## Framework contract and customization
 
-## Feature Guides
+| Topic | Purpose |
+| --- | --- |
+| [GAME_COMPONENTS.md](GAME_COMPONENTS.md) | How game-specific components plug into the shared shell |
+| [CONTEXTS_GUIDE.md](CONTEXTS_GUIDE.md) | Framework contexts and where yearly bindings enter |
+| [HOOKS_REFERENCE.md](HOOKS_REFERENCE.md) | Hook reference for framework and extension points |
+| [UTILITY_HOOKS.md](UTILITY_HOOKS.md) | Smaller utility hooks used across the shell |
+| [NAVIGATION_SETUP.md](NAVIGATION_SETUP.md) | Route and workflow navigation setup |
 
-**Core Features:**
+## Core feature guides
 
-- 🗄️ **[DATABASE.md](DATABASE.md)** - Using IndexedDB with Dexie
-- 📱 **[PWA.md](PWA.md)** - Progressive Web App setup
-- 🔄 **[DATA_TRANSFER.md](DATA_TRANSFER.md)** - QR codes for offline sync
-- 📡 **[PEER_TRANSFER.md](PEER_TRANSFER.md)** - WebRTC WiFi device sync
-- 📤 **[JSON_DATA_TRANSFER.md](JSON_DATA_TRANSFER.md)** - JSON/CSV export and import
-- 🔀 **[DATA_TRANSFORMATION.md](DATA_TRANSFORMATION.md)** - Action arrays to counter fields
+| Topic | Purpose |
+| --- | --- |
+| [DATABASE.md](DATABASE.md) | IndexedDB schema, persistence flow, and exports |
+| [PWA.md](PWA.md) | Install/update behavior and offline-first shell support |
+| [QR_DATA_TRANSFER.md](QR_DATA_TRANSFER.md) | Offline transfer via QR fountain packets |
+| [JSON_DATA_TRANSFER.md](JSON_DATA_TRANSFER.md) | File export and import flows |
+| [PEER_TRANSFER.md](PEER_TRANSFER.md) | WebRTC room-based peer transfer |
+| [DATA_TRANSFORMATION.md](DATA_TRANSFORMATION.md) | How raw scouting interactions become persisted counters |
+| [CLEAR_DATA.md](CLEAR_DATA.md) | Data-reset and cleanup flows |
+| [DEV_UTILITIES.md](DEV_UTILITIES.md) | Debug and seeding tools exposed by the shell |
 
-**Page Documentation:**
+## Shared pages
 
-- 📊 **[TEAM_STATS.md](TEAM_STATS.md)** - Team statistics and match history
-- 🎯 **[PICK_LISTS.md](PICK_LISTS.md)** - Alliance selection pick lists
-- ✅ **[MATCH_VALIDATION.md](MATCH_VALIDATION.md)** - Compare scouted data vs TBA results
-- 🏅 **[ACHIEVEMENTS.md](ACHIEVEMENTS.md)** - Scout achievements system
-- 🎮 **[SCOUTING_WORKFLOW.md](SCOUTING_WORKFLOW.md)** - Match scouting 5-step workflow
-- 👥 **[SCOUT_MANAGEMENT.md](SCOUT_MANAGEMENT.md)** - Scout dashboard and profiles
-- 📋 **[PIT_SCOUTING.md](PIT_SCOUTING.md)** - Pit scouting data collection
-- 🗑️ **[CLEAR_DATA.md](CLEAR_DATA.md)** - Data clearing utilities
-- 🛠️ **[DEV_UTILITIES.md](DEV_UTILITIES.md)** - Development and testing tools
+| Topic | Purpose |
+| --- | --- |
+| [SCOUTING_WORKFLOW.md](SCOUTING_WORKFLOW.md) | Shared scouting route flow and yearly-owned surfaces |
+| [TEAM_STATS.md](TEAM_STATS.md) | Team statistics page and analysis bindings |
+| [STRATEGY_OVERVIEW.md](STRATEGY_OVERVIEW.md) | Strategy table configuration and usage |
+| [MATCH_STRATEGY.md](MATCH_STRATEGY.md) | Match-specific strategy workflow |
+| [MATCH_VALIDATION.md](MATCH_VALIDATION.md) | TBA comparison flow and validation responsibilities |
+| [PICK_LISTS.md](PICK_LISTS.md) | Pick list behavior and sorting hooks |
+| [PIT_ASSIGNMENTS.md](PIT_ASSIGNMENTS.md) | Pit assignment workflow |
+| [PIT_SCOUTING.md](PIT_SCOUTING.md) | Pit scouting shell plus game-owned questions |
+| [SCOUT_MANAGEMENT.md](SCOUT_MANAGEMENT.md) | Scout profiles, dashboards, and leaderboards |
+| [ACHIEVEMENTS.md](ACHIEVEMENTS.md) | Gamification and achievement surfaces |
 
-**Analysis Features:**
+## Historical or transitional docs
 
-- 📈 **[STRATEGY_OVERVIEW.md](STRATEGY_OVERVIEW.md)** - Strategy page configuration
-- 🏟️ **[MATCH_STRATEGY.md](MATCH_STRATEGY.md)** - Match-specific strategy tools
+| Topic | Purpose |
+| --- | --- |
+| [TEST_HARNESS_PLAN.md](TEST_HARNESS_PLAN.md) | Historical planning context for the inherited harness rollout |
 
-**React Guides:**
+## Documentation maintenance rules
 
-- 🔗 **[CONTEXTS_GUIDE.md](CONTEXTS_GUIDE.md)** - Using React contexts (GameContext, etc.)
-- 🪝 **[HOOKS_GUIDE.md](HOOKS_GUIDE.md)** - Custom React hooks reference
-- 🧭 **[NAVIGATION_SETUP.md](NAVIGATION_SETUP.md)** - Setting up routing and navigation
-
-## Documentation Organization
-
-**✅ User-Facing Docs** (in this repo):
-
-- Architecture and design philosophy
-- How-to guides and tutorials
-- API reference for hooks, contexts, and components
-- Framework interface specifications
-
-*These internal docs are for framework maintainers and won't appear in template repos.*
-
-## Contributing to Docs
-
-When adding documentation:
-
-- **User guides** → Add to this folder (will be in template)
-- **Code examples** → Use real-world game years (2024 Crescendo, 2025 Reefscape)
-- **Interface changes** → Update FRAMEWORK_DESIGN.md
-
-## Need Help?
-
-- 🐛 **Issues:** Open an issue on GitHub
-- 💬 **Discussions:** Use GitHub Discussions
-- 📧 **Contact:** [Your contact info]
-
----
-
-**Remember:** This is a template repository. Teams fork this to create their yearly scouting apps (e.g., maneuver-2025, maneuver-2026).
+- Keep `src\core\` docs year-agnostic.
+- Describe season-specific behavior as **yearly repo** customization, not framework behavior.
+- Prefer current repo filenames and paths exactly as they exist.
+- If an interface changes, update [FRAMEWORK_DESIGN.md](FRAMEWORK_DESIGN.md) and any affected feature docs in the same sweep.
