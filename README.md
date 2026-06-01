@@ -128,7 +128,7 @@ npm run test:e2e:update-snapshots
 ```
 
 - **PR lane** runs on every pull request through `.github/workflows/pr-lane.yml`
-- **Heavy confidence lane** runs on a weekly schedule and through manual dispatch in `.github/workflows/heavy-confidence-lane.yml`
+- **Heavy confidence lane** runs on pull requests, a weekly schedule, and manual dispatch in `.github/workflows/heavy-confidence-lane.yml`
 - The inherited **Game compatibility suite** lives in two layers:
   - locked core contract: `src/core/testing/game-compatibility/`
   - editable yearly layer: `src/game-template/testing/`

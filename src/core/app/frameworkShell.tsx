@@ -93,14 +93,6 @@ export interface FrameworkShellProps {
   runtime?: Partial<FrameworkShellRuntimeOptions>;
 }
 
-const defaultValidation: ValidationRules<ScoutingEntryBase> = {
-  getDataCategories: () => [],
-  calculateAllianceStats: () => ({}),
-  calculateAllianceScore: () => ({ auto: 0, teleop: 0, endgame: 0, total: 0 }),
-  validateMatch: async () => ({}) as MatchValidationResult,
-  getDefaultConfig: () => ({ thresholds: defaultValidationThresholds }),
-};
-
 const defaultValidationThresholds = {
   critical: 25,
   warning: 15,
@@ -109,6 +101,14 @@ const defaultValidationThresholds = {
   warningAbsolute: 3,
   minorAbsolute: 1,
 } satisfies ValidationConfig['thresholds'];
+
+const defaultValidation: ValidationRules<ScoutingEntryBase> = {
+  getDataCategories: () => [],
+  calculateAllianceStats: () => ({}),
+  calculateAllianceScore: () => ({ auto: 0, teleop: 0, endgame: 0, total: 0 }),
+  validateMatch: async () => ({}) as MatchValidationResult,
+  getDefaultConfig: () => ({ thresholds: defaultValidationThresholds }),
+};
 
 const defaultUiComponents = {
   GameStartScreen: () => null,

@@ -6,7 +6,7 @@ The **Game compatibility suite** is the inherited part of the test harness that 
 
 | Layer | Path | Ownership | What belongs here |
 | --- | --- | --- | --- |
-| **Locked core contract layer** | `src/core/testing/game-compatibility/locked-coreContract.test.tsx` and `src/core/testing/game-compatibility/renderGameCompatibilityShell.tsx` | `maneuver-core` | Unchanged inherited coverage for framework boot, required bindings, and the minimal compatibility path through the framework shell |
+| **Locked core contract layer** | `src/core/testing/game-compatibility/lockedCoreContract.test.tsx` and `src/core/testing/game-compatibility/renderGameCompatibilityShell.tsx` | `maneuver-core` | Unchanged inherited coverage for framework boot, required bindings, and the minimal compatibility path through the framework shell |
 | **Yearly compatibility manifest** | `src/game-template/testing/compatibilityManifest.tsx` | yearly repo | The season's wiring for game bindings, selectors, and any lightweight contract fixture data consumed by the locked layer |
 | **Editable yearly layer** | `src/game-template/testing/editable-yearly/` | yearly repo | Season-specific user-flow coverage such as scouting workflow, pit scouting, and other game-owned behaviors |
 

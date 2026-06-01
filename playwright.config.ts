@@ -1,6 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
 const port = 4173;
+const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 
 export default defineConfig({
   testDir: './tests/e2e',
@@ -35,7 +36,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: `npm.cmd run dev:vite -- --host 127.0.0.1 --port ${port}`,
+    command: `${npmCommand} run dev:vite -- --host 127.0.0.1 --port ${port}`,
     url: `http://127.0.0.1:${port}`,
     reuseExistingServer: !process.env.CI,
   },
