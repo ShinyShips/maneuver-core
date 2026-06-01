@@ -203,16 +203,25 @@ export const parseMatchKey = (matchKey: string): {
   if (!eventKey || !matchPart) {
     throw new Error(`Invalid match key format: ${matchKey}`);
   }
-  
-  // Extract comp level (qm, sf, f, etc.) and match number
-  const compLevelMatch = matchPart.match(/^([a-z]+)(\d+)$/);
-  const compLevel = compLevelMatch?.[1];
-  const matchNumberText = compLevelMatch?.[2];
+
+  if (matchPart.startsWith('qm')) {
+    const matchNumberText = matchPart.slice(2);
+    const matchNumber = Number.parseInt(matchNumberText, 10);
+    if (!matchNumberText || Number.isNaN(matchNumber)) {
+      throw new Error(`Invalid match key format: ${matchKey}`);
+    }
+
+    return { eventKey, compLevel: 'qm', matchNumber };
+  }
+
+  const playoffMatch = matchPart.match(/^([a-z]+)(\d+)m(\d+)$/);
+  const compLevel = playoffMatch?.[1];
+  const matchNumberText = playoffMatch?.[3];
   if (!compLevel || !matchNumberText) {
     throw new Error(`Invalid match key format: ${matchKey}`);
   }
 
-  const matchNumber = parseInt(matchNumberText, 10);
+  const matchNumber = Number.parseInt(matchNumberText, 10);
 
   return { eventKey, compLevel, matchNumber };
 };
