@@ -5,6 +5,7 @@ test.describe('framework shell', () => {
     await page.goto('/');
 
     await expect(page.getByText('Version')).toBeVisible();
+    await page.goto('/');
   });
 
   test('smokes the shared transfer routes', async ({ page }) => {
@@ -16,6 +17,7 @@ test.describe('framework shell', () => {
 
     await expect(page.getByRole('heading', { name: 'QR Data Transfer' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Generate Fountain Codes' })).toBeVisible();
+    await page.goto('/');
   });
 
   test('enters the JSON upload flow', async ({ page }) => {
@@ -25,5 +27,6 @@ test.describe('framework shell', () => {
 
     await expect(page.getByRole('button', { name: /Back/ })).toBeVisible();
     await expect(page.getByText('automatically detect the data type')).toBeVisible();
+    await page.goto('/');
   });
 });
