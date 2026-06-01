@@ -195,13 +195,13 @@ export const parseMatchKey = (matchKey: string): {
 } => {
   const parts = matchKey.split('_');
   if (parts.length !== 2) {
-    throw new Error('Invalid match key format');
+    throw new Error(`Invalid match key format: ${matchKey}`);
   }
 
   const eventKey = parts[0];
   const matchPart = parts[1];
   if (!eventKey || !matchPart) {
-    throw new Error('Invalid match key format');
+    throw new Error(`Invalid match key format: ${matchKey}`);
   }
   
   // Extract comp level (qm, sf, f, etc.) and match number
@@ -209,7 +209,7 @@ export const parseMatchKey = (matchKey: string): {
   const compLevel = compLevelMatch?.[1];
   const matchNumberText = compLevelMatch?.[2];
   if (!compLevel || !matchNumberText) {
-    throw new Error('Invalid match key format');
+    throw new Error(`Invalid match key format: ${matchKey}`);
   }
 
   const matchNumber = parseInt(matchNumberText, 10);

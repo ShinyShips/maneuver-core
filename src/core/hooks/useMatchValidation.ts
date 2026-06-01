@@ -193,17 +193,13 @@ export function useMatchValidation({
                 // Extract the actual MatchValidationResult from the DB wrapper
                 const result = dbResult.result;
                 resultsMap.set(result.matchKey, result);
-
-                // Attach to match list item
-                const item = items.find(i => i.matchKey === result.matchKey);
-                if (item) {
-                    item.validationResult = result;
-                }
             }
 
             setValidationResults(resultsMap);
+            return mergeValidationResults(items, resultsMap);
         } catch (err) {
             console.error('Failed to load validation results:', err);
+            return items;
         }
     }, [eventKey]);
 
@@ -218,10 +214,10 @@ export function useMatchValidation({
             await updateScoutingStatus(items);
 
             // Load existing validation results
-            await loadValidationResults(items);
+            const itemsWithResults = await loadValidationResults(items);
 
             // Sort by match number
-            const sorted = sortMatchList(items);
+            const sorted = sortMatchList(itemsWithResults);
             setMatchList(sorted);
         };
 
@@ -367,14 +363,13 @@ export function useMatchValidation({
                 const result = await validateSingleMatch(match);
                 if (result) {
                     newResults.set(match.matchKey, result);
-                    match.validationResult = result;
                 }
 
                 validated++;
             }
 
             setValidationResults(newResults);
-            setMatchList([...matchList]);  // Trigger re-render
+            setMatchList(mergeValidationResults(matchList, newResults));
 
             toast.success(`Validated ${validated} matches`);
         } catch (err) {
@@ -398,9 +393,7 @@ export function useMatchValidation({
                 const newResults = new Map(validationResults);
                 newResults.set(matchKey, result);
                 setValidationResults(newResults);
-
-                match.validationResult = result;
-                setMatchList([...matchList]);
+                setMatchList(mergeValidationResults(matchList, newResults));
             }
             return result;
         } finally {
@@ -414,8 +407,8 @@ export function useMatchValidation({
 
     const refreshResults = useCallback(async () => {
         if (matchList.length > 0) {
-            await loadValidationResults([...matchList]);
-            setMatchList([...matchList]);
+            const refreshedMatchList = await loadValidationResults(matchList);
+            setMatchList(refreshedMatchList);
         }
     }, [loadValidationResults, matchList]);
 
@@ -427,12 +420,7 @@ export function useMatchValidation({
 
             // Clear from state
             setValidationResults(new Map());
-
-            // Clear from match list items
-            for (const match of matchList) {
-                match.validationResult = undefined;
-            }
-            setMatchList([...matchList]);
+            setMatchList(clearValidationResults(matchList));
 
             toast.success('Validation results cleared');
         } catch {
@@ -791,6 +779,23 @@ function createNoScoutingResult(match: MatchListItem): MatchValidationResult {
         requiresReScout: false,
         validatedAt: Date.now(),
     };
+}
+
+function mergeValidationResults(
+    items: MatchListItem[],
+    results: Map<string, MatchValidationResult>
+): MatchListItem[] {
+    return items.map(item => ({
+        ...item,
+        validationResult: results.get(item.matchKey),
+    }));
+}
+
+function clearValidationResults(items: MatchListItem[]): MatchListItem[] {
+    return items.map(item => ({
+        ...item,
+        validationResult: undefined,
+    }));
 }
 
 /**
