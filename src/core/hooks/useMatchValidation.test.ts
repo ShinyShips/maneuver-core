@@ -14,4 +14,16 @@ describe('filterScoutingEntriesForMatch', () => {
     expect(filterScoutingEntriesForMatch(entries, '2025mrcmp_sf1m1')).toEqual([entries[1]]);
     expect(filterScoutingEntriesForMatch(entries, '2025mrcmp_f1m1')).toEqual([entries[2]]);
   });
+
+  it('matches short local keys against full TBA keys', () => {
+    const entries = [
+      { matchKey: 'qm15', matchNumber: 15, teamNumber: 111, allianceColor: 'red' as const, scoutName: 'A', gameData: {} },
+      { matchKey: 'sf1m1', matchNumber: 1, teamNumber: 222, allianceColor: 'blue' as const, scoutName: 'B', gameData: {} },
+      { matchKey: 'f1m2', matchNumber: 2, teamNumber: 333, allianceColor: 'red' as const, scoutName: 'C', gameData: {} },
+    ];
+
+    expect(filterScoutingEntriesForMatch(entries, '2025mrcmp_qm15')).toEqual([entries[0]]);
+    expect(filterScoutingEntriesForMatch(entries, '2025mrcmp_sf1m1')).toEqual([entries[1]]);
+    expect(filterScoutingEntriesForMatch(entries, '2025mrcmp_f1m2')).toEqual([entries[2]]);
+  });
 });

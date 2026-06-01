@@ -524,7 +524,13 @@ export function filterScoutingEntriesForMatch<T extends { matchKey: string }>(
     entries: T[],
     matchKey: string
 ): T[] {
-    return entries.filter(entry => entry.matchKey === matchKey);
+    const normalizedMatchKey = normalizeMatchKey(matchKey);
+    return entries.filter(entry => normalizeMatchKey(entry.matchKey) === normalizedMatchKey);
+}
+
+function normalizeMatchKey(matchKey: string): string {
+    const parts = matchKey.split('_');
+    return parts.length > 1 ? parts[parts.length - 1] ?? matchKey : matchKey;
 }
 
 /**
