@@ -7,6 +7,7 @@ import {
 import { useEffect, useState } from "react";
 import { ThemeProvider } from "@/core/components/theme-provider"
 import { analytics } from '@/core/lib/analytics';
+import { ensureStrategySnapshotsCurrent } from "@/core/lib/strategySnapshotCache";
 
 import MainLayout from "@/core/layouts/MainLayout";
 import NotFoundPage from "@/core/pages/NotFoundPage";
@@ -136,6 +137,9 @@ function App() {
   const [showSplash, setShowSplash] = useState(true);
 
   useEffect(() => {
+    void ensureStrategySnapshotsCurrent().catch(error => {
+      console.error("Failed to initialize strategy snapshot cache:", error);
+    });
 
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("/sw.js");

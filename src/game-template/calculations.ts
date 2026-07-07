@@ -13,6 +13,28 @@ import type { ScoutingEntry } from "@/game-template/scoring";
 import type { TeamStats } from "@/core/types/team-stats";
 import { scoringCalculations } from "./scoring";
 
+export interface ScoredMatchMetrics {
+    autoPoints: number;
+    teleopPoints: number;
+    endgamePoints: number;
+    totalPoints: number;
+}
+
+const isIncludedInStats = (match: ScoutingEntry): boolean => !match.ignoreForStats;
+
+export const scoreMatchForStats = (match: ScoutingEntry): ScoredMatchMetrics => {
+    const autoPoints = scoringCalculations.calculateAutoPoints({ gameData: match.gameData } as any);
+    const teleopPoints = scoringCalculations.calculateTeleopPoints({ gameData: match.gameData } as any);
+    const endgamePoints = scoringCalculations.calculateEndgamePoints({ gameData: match.gameData } as any);
+
+    return {
+        autoPoints,
+        teleopPoints,
+        endgamePoints,
+        totalPoints: autoPoints + teleopPoints + endgamePoints,
+    };
+};
+
 // Helper functions
 const sum = <T>(arr: T[], fn: (item: T) => number): number =>
     arr.reduce((acc, item) => acc + fn(item), 0);
@@ -34,21 +56,35 @@ export const calculateTeamStats = (teamMatches: ScoutingEntry[]): Omit<TeamStats
         return getEmptyStats();
     }
 
-    const matchCount = teamMatches.length;
+    const includedMatches = teamMatches.filter(isIncludedInStats);
+    const matchCount = includedMatches.length;
+
+    const scoredMatches = teamMatches.map(match => ({
+        match,
+        scores: scoreMatchForStats(match),
+    }));
+
+    const includedScoredMatches = scoredMatches.filter(({ match }) => isIncludedInStats(match));
+
+    if (matchCount === 0) {
+        return {
+            ...getEmptyStats(),
+            rawValues: {
+                totalPoints: [],
+                autoPoints: [],
+                teleopPoints: [],
+                endgamePoints: [],
+            },
+        };
+    }
 
     // ============================================================================
     // POINT CALCULATIONS (using centralized scoring)
     // ============================================================================
 
-    const totalAutoPoints = sum(teamMatches, m =>
-        scoringCalculations.calculateAutoPoints({ gameData: m.gameData } as any)
-    );
-    const totalTeleopPoints = sum(teamMatches, m =>
-        scoringCalculations.calculateTeleopPoints({ gameData: m.gameData } as any)
-    );
-    const totalEndgamePoints = sum(teamMatches, m =>
-        scoringCalculations.calculateEndgamePoints({ gameData: m.gameData } as any)
-    );
+    const totalAutoPoints = sum(includedScoredMatches, ({ scores }) => scores.autoPoints);
+    const totalTeleopPoints = sum(includedScoredMatches, ({ scores }) => scores.teleopPoints);
+    const totalEndgamePoints = sum(includedScoredMatches, ({ scores }) => scores.endgamePoints);
     const totalPoints = totalAutoPoints + totalTeleopPoints + totalEndgamePoints;
 
     // ============================================================================
@@ -56,20 +92,20 @@ export const calculateTeamStats = (teamMatches: ScoutingEntry[]): Omit<TeamStats
     // ============================================================================
 
     // Auto game pieces
-    const autoGamePiece1Total = sum(teamMatches, m =>
+    const autoGamePiece1Total = sum(includedMatches, m =>
         val(m.gameData?.auto?.action1Count) + val(m.gameData?.auto?.action2Count)
     );
 
-    const autoGamePiece2Total = sum(teamMatches, m =>
+    const autoGamePiece2Total = sum(includedMatches, m =>
         val(m.gameData?.auto?.action3Count) + val(m.gameData?.auto?.action4Count)
     );
 
     // Teleop game pieces
-    const teleopGamePiece1Total = sum(teamMatches, m =>
+    const teleopGamePiece1Total = sum(includedMatches, m =>
         val(m.gameData?.teleop?.action1Count) + val(m.gameData?.teleop?.action2Count)
     );
 
-    const teleopGamePiece2Total = sum(teamMatches, m =>
+    const teleopGamePiece2Total = sum(includedMatches, m =>
         val(m.gameData?.teleop?.action3Count)
     );
 
@@ -83,41 +119,33 @@ export const calculateTeamStats = (teamMatches: ScoutingEntry[]): Omit<TeamStats
     // ============================================================================
 
     // Mobility indicator (using autoToggle from schema)
-    const mobilityCount = teamMatches.filter(m => m.gameData?.auto?.autoToggle === true).length;
+    const mobilityCount = includedMatches.filter(m => m.gameData?.auto?.autoToggle === true).length;
 
     // Starting positions
-    const startPositions = calculateStartPositions(teamMatches, matchCount);
+    const startPositions = calculateStartPositions(includedMatches, matchCount);
 
     // ============================================================================
     // ENDGAME STATS (Generic: option1-5, toggle1-2 as boolean flags)
     // ============================================================================
 
     // Calculate rates for all endgame boolean options
-    const option1Count = teamMatches.filter(m => m.gameData?.endgame?.option1 === true).length;
-    const option2Count = teamMatches.filter(m => m.gameData?.endgame?.option2 === true).length;
-    const option3Count = teamMatches.filter(m => m.gameData?.endgame?.option3 === true).length;
-    const option4Count = teamMatches.filter(m => m.gameData?.endgame?.option4 === true).length;
-    const option5Count = teamMatches.filter(m => m.gameData?.endgame?.option5 === true).length;
-    const toggle1Count = teamMatches.filter(m => m.gameData?.endgame?.toggle1 === true).length;
-    const toggle2Count = teamMatches.filter(m => m.gameData?.endgame?.toggle2 === true).length;
+    const option1Count = includedMatches.filter(m => m.gameData?.endgame?.option1 === true).length;
+    const option2Count = includedMatches.filter(m => m.gameData?.endgame?.option2 === true).length;
+    const option3Count = includedMatches.filter(m => m.gameData?.endgame?.option3 === true).length;
+    const option4Count = includedMatches.filter(m => m.gameData?.endgame?.option4 === true).length;
+    const option5Count = includedMatches.filter(m => m.gameData?.endgame?.option5 === true).length;
+    const toggle1Count = includedMatches.filter(m => m.gameData?.endgame?.toggle1 === true).length;
+    const toggle2Count = includedMatches.filter(m => m.gameData?.endgame?.toggle2 === true).length;
 
     // ============================================================================
     // RAW VALUES (for box plots and distribution charts)
     // ============================================================================
 
     const rawValues = {
-        totalPoints: teamMatches.map(m =>
-            scoringCalculations.calculateTotalPoints({ gameData: m.gameData } as any)
-        ),
-        autoPoints: teamMatches.map(m =>
-            scoringCalculations.calculateAutoPoints({ gameData: m.gameData } as any)
-        ),
-        teleopPoints: teamMatches.map(m =>
-            scoringCalculations.calculateTeleopPoints({ gameData: m.gameData } as any)
-        ),
-        endgamePoints: teamMatches.map(m =>
-            scoringCalculations.calculateEndgamePoints({ gameData: m.gameData } as any)
-        ),
+        totalPoints: includedScoredMatches.map(({ scores }) => scores.totalPoints),
+        autoPoints: includedScoredMatches.map(({ scores }) => scores.autoPoints),
+        teleopPoints: includedScoredMatches.map(({ scores }) => scores.teleopPoints),
+        endgamePoints: includedScoredMatches.map(({ scores }) => scores.endgamePoints),
     };
 
     // ============================================================================

@@ -11,11 +11,9 @@
  * - Adding new stats means editing one file (calculations.ts)
  */
 
-import { useMemo } from "react";
-import { useAllMatches } from "./useAllMatches";
-import { calculateTeamStats } from "@/game-template/calculations";
+import { useEffect, useState } from "react";
+import { getStrategySnapshots } from "@/core/lib/strategySnapshotCache";
 import type { TeamStats } from "@/core/types/team-stats";
-import type { ScoutingEntry } from "@/game-template/scoring";
 
 export interface UseAllTeamStatsResult {
     teamStats: TeamStats[];
@@ -31,43 +29,42 @@ export interface UseAllTeamStatsResult {
  * @returns Array of TeamStats objects with all computed metrics
  */
 export const useAllTeamStats = (eventKey?: string): UseAllTeamStatsResult => {
-    const { matches, isLoading, error } = useAllMatches(eventKey);
+    const [teamStats, setTeamStats] = useState<TeamStats[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState<Error | null>(null);
 
-    const teamStats = useMemo(() => {
-        if (!matches || matches.length === 0) return [];
+    useEffect(() => {
+        let isCancelled = false;
 
-        // Group matches by team + event
-        const matchesByTeam = matches.reduce((acc, match) => {
-            const teamNumber = match.teamNumber;
-            const event = match.eventKey || "Unknown";
+        const loadTeamStats = async () => {
+            setIsLoading(true);
+            setError(null);
 
-            if (!teamNumber) return acc;
+            try {
+                const snapshots = await getStrategySnapshots(eventKey);
+                const sortedSnapshots = [...snapshots].sort((a, b) => a.teamNumber - b.teamNumber);
 
-            const key = `${teamNumber}_${event}`;
-            if (!acc[key]) {
-                acc[key] = {
-                    teamNumber,
-                    eventKey: event,
-                    matches: [],
-                };
+                if (!isCancelled) {
+                    setTeamStats(sortedSnapshots);
+                }
+            } catch (err) {
+                if (!isCancelled) {
+                    setError(err instanceof Error ? err : new Error("Failed to load team statistics"));
+                    setTeamStats([]);
+                }
+            } finally {
+                if (!isCancelled) {
+                    setIsLoading(false);
+                }
             }
-            acc[key].matches.push(match);
-            return acc;
-        }, {} as Record<string, { teamNumber: number; eventKey: string; matches: ScoutingEntry[] }>);
+        };
 
-        // Calculate stats for each team (ONCE)
-        const stats: TeamStats[] = Object.values(matchesByTeam).map(({ teamNumber, eventKey, matches: teamMatches }) => {
-            const calculated = calculateTeamStats(teamMatches);
-            return {
-                teamNumber,
-                eventKey,
-                ...calculated,
-            } as TeamStats;
-        });
+        void loadTeamStats();
 
-        // Sort by team number
-        return stats.sort((a, b) => a.teamNumber - b.teamNumber);
-    }, [matches]);
+        return () => {
+            isCancelled = true;
+        };
+    }, [eventKey]);
 
     return { teamStats, isLoading, error };
 };

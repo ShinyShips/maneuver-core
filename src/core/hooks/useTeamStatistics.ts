@@ -67,6 +67,7 @@ export const useTeamStatistics = (
                 teamNumber: stats.teamNumber,
                 eventKey: stats.eventKey,
                 matchCount: stats.matchCount,
+                rawValues: stats.rawValues,
             };
 
             // Map all stats to the TeamData object
@@ -109,6 +110,7 @@ export const useTeamStatistics = (
                     const count = typeof row.matchCount === 'number' ? row.matchCount : 0;
                     return sum + count;
                 }, 0),
+                rawValues: {},
             };
 
             const allKeys = new Set<string>();
@@ -118,6 +120,28 @@ export const useTeamStatistics = (
 
             for (const key of allKeys) {
                 if (key === 'teamNumber' || key === 'eventKey' || key === 'matchCount') {
+                    continue;
+                }
+
+                if (key === 'rawValues') {
+                    const mergedRawValues: Record<string, number[]> = {};
+
+                    rows.forEach(row => {
+                        const rawValues = row.rawValues;
+                        if (!rawValues) {
+                            return;
+                        }
+
+                        Object.entries(rawValues).forEach(([rawKey, rawMetricValues]) => {
+                            if (!mergedRawValues[rawKey]) {
+                                mergedRawValues[rawKey] = [];
+                            }
+
+                            mergedRawValues[rawKey]!.push(...rawMetricValues);
+                        });
+                    });
+
+                    merged.rawValues = mergedRawValues;
                     continue;
                 }
 
