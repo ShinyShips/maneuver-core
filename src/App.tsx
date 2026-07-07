@@ -3,27 +3,28 @@ import {
   createRoutesFromElements,
   RouterProvider,
   Route,
-} from "react-router-dom";
-import { useEffect, useState } from "react";
-import { ThemeProvider } from "@/core/components/theme-provider"
+} from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { ThemeProvider } from '@/core/components/theme-provider';
 import { analytics } from '@/core/lib/analytics';
-import { ensureStrategySnapshotsCurrent } from "@/core/lib/strategySnapshotCache";
+import { ensureStrategySnapshotsCurrent } from '@/core/lib/strategySnapshotCache';
 
-import MainLayout from "@/core/layouts/MainLayout";
-import NotFoundPage from "@/core/pages/NotFoundPage";
+import MainLayout from '@/core/layouts/MainLayout';
+import NotFoundPage from '@/core/pages/NotFoundPage';
 
-import HomePage from "@/core/pages/HomePage";
-import GameStartPage from "@/core/pages/GameStartPage";
-import ClearDataPage from "@/core/pages/ClearDataPage";
-import AutoStartPage from "@/core/pages/AutoStartPage";
-import AutoScoringPage from "@/core/pages/AutoScoringPage";
-import TeleopScoringPage from "@/core/pages/TeleopScoringPage";
-import EndgamePage from "@/core/pages/EndgamePage";
-import { PitScoutingPage } from "@/core/pages/PitScoutingPage";
-import APIDataPage from "@/core/pages/APIDataPage";
-import JSONDataTransferPage from "@/core/pages/JSONDataTransferPage";
-import PeerTransferPage from "@/core/pages/PeerTransferPage";
-import QRDataTransferPage from "@/core/pages/QRDataTransferPage";
+import HomePage from '@/core/pages/HomePage';
+import GameStartPage from '@/core/pages/GameStartPage';
+import ClearDataPage from '@/core/pages/ClearDataPage';
+import AutoStartPage from '@/core/pages/AutoStartPage';
+import AutoScoringPage from '@/core/pages/AutoScoringPage';
+import TeleopScoringPage from '@/core/pages/TeleopScoringPage';
+import EndgamePage from '@/core/pages/EndgamePage';
+import { PitScoutingPage } from '@/core/pages/PitScoutingPage';
+import APIDataPage from '@/core/pages/APIDataPage';
+import JSONDataTransferPage from '@/core/pages/JSONDataTransferPage';
+import PeerTransferPage from '@/core/pages/PeerTransferPage';
+import QRDataTransferPage from '@/core/pages/QRDataTransferPage';
+import RemoteSyncPage from '@/core/pages/RemoteSyncPage';
 // GAME-SPECIFIC: Uncomment and implement these in your game implementation
 // import AutoStartPage from "@/pages/AutoStartPage";
 // import ParseDataPage from "@/pages/ParseDataPage";
@@ -35,16 +36,16 @@ import QRDataTransferPage from "@/core/pages/QRDataTransferPage";
 // import MatchStrategyPage from "@/pages/MatchStrategyPage";
 // import { AutoScoringPage, TeleopScoringPage } from "@/pages/ScoringPage";
 // import EndgamePage from "@/pages/EndgamePage";
-import TeamStatsPage from "@/core/pages/TeamStatsPage";
-import StrategyOverviewPage from "@/core/pages/StrategyOverviewPage";
-import MatchStrategyPage from "@/core/pages/MatchStrategyPage";
-import PickListPage from "@/core/pages/PickListPage";
+import TeamStatsPage from '@/core/pages/TeamStatsPage';
+import StrategyOverviewPage from '@/core/pages/StrategyOverviewPage';
+import MatchStrategyPage from '@/core/pages/MatchStrategyPage';
+import PickListPage from '@/core/pages/PickListPage';
 // import PitScoutingPage from "@/pages/PitScoutingPage";
-import ScoutManagementDashboardPage from "@/core/pages/ScoutManagementDashboardPage";
-import AchievementsPage from "@/core/pages/AchievementsPage";
-import DevUtilitiesPage from "@/core/pages/DevUtilitiesPage";
-import { MatchValidationPage } from "@/core/pages/MatchValidationPage";
-import PitAssignmentsPage from "@/core/pages/PitAssignmentsPage";
+import ScoutManagementDashboardPage from '@/core/pages/ScoutManagementDashboardPage';
+import AchievementsPage from '@/core/pages/AchievementsPage';
+import DevUtilitiesPage from '@/core/pages/DevUtilitiesPage';
+import { MatchValidationPage } from '@/core/pages/MatchValidationPage';
+import PitAssignmentsPage from '@/core/pages/PitAssignmentsPage';
 import { InstallPrompt } from '@/core/components/pwa/InstallPrompt';
 import { PWAUpdatePrompt } from '@/core/components/pwa/PWAUpdatePrompt';
 import { StatusBarSpacer } from '@/core/components/StatusBarSpacer';
@@ -55,21 +56,35 @@ import { ScoutProvider } from '@/core/contexts/ScoutContext';
 import { WebRTCDataRequestDialog } from '@/core/components/webrtc/WebRTCDataRequestDialog';
 import { WebRTCPushedDataDialog } from '@/core/components/webrtc/WebRTCPushedDataDialog';
 import { WebRTCNotifications } from '@/core/components/webrtc/WebRTCNotifications';
-import { GameProvider } from "@/core/contexts/GameContext";
-import { strategyAnalysis } from "@/game-template/analysis";
-import { scoringCalculations } from "@/game-template/scoring";
-import { gameDataTransformation } from "@/game-template/transformation";
+import { GameProvider } from '@/core/contexts/GameContext';
+import { strategyAnalysis } from '@/game-template/analysis';
+import { scoringCalculations } from '@/game-template/scoring';
+import { gameDataTransformation } from '@/game-template/transformation';
 import {
   StatusToggles,
   GameSpecificQuestions,
   GameSpecificScoutOptions,
-} from "@/game-template/components";
-import logo from "../src/assets/Maneuver Wordmark Vertical.png";
+} from '@/game-template/components';
+import logo from '../src/assets/Maneuver Wordmark Vertical.png';
 
 // Mock implementations for missing template parts
-const mockConfig = { year: 2025, gameName: "Template Game", scoring: { auto: {}, teleop: {}, endgame: {} } };
-const mockValidation = { getDataCategories: () => [], calculateAllianceStats: () => ({}), calculateAllianceScore: () => ({ auto: 0, teleop: 0, endgame: 0, total: 0 }), validateMatch: async () => ({} as any), getDefaultConfig: () => ({} as any) };
-const mockUI = { GameStartScreen: () => null, AutoScoringScreen: () => null, TeleopScoringScreen: () => null };
+const mockConfig = {
+  year: 2025,
+  gameName: 'Template Game',
+  scoring: { auto: {}, teleop: {}, endgame: {} },
+};
+const mockValidation = {
+  getDataCategories: () => [],
+  calculateAllianceStats: () => ({}),
+  calculateAllianceScore: () => ({ auto: 0, teleop: 0, endgame: 0, total: 0 }),
+  validateMatch: async () => ({}) as any,
+  getDefaultConfig: () => ({}) as any,
+};
+const mockUI = {
+  GameStartScreen: () => null,
+  AutoScoringScreen: () => null,
+  TeleopScoringScreen: () => null,
+};
 
 function App() {
   const router = createBrowserRouter(
@@ -83,12 +98,14 @@ function App() {
             validation={mockValidation as any}
             analysis={strategyAnalysis as any}
             transformation={gameDataTransformation as any}
-            ui={{
-              ...mockUI,
-              StatusToggles,
-              PitScoutingQuestions: GameSpecificQuestions,
-              ScoutOptionsContent: GameSpecificScoutOptions,
-            } as any}
+            ui={
+              {
+                ...mockUI,
+                StatusToggles,
+                PitScoutingQuestions: GameSpecificQuestions,
+                ScoutOptionsContent: GameSpecificScoutOptions,
+              } as any
+            }
           >
             <MainLayout />
           </GameProvider>
@@ -106,6 +123,7 @@ function App() {
         <Route path="/json-transfer" element={<JSONDataTransferPage />} />
         <Route path="/peer-transfer" element={<PeerTransferPage />} />
         <Route path="/qr-transfer" element={<QRDataTransferPage />} />
+        <Route path="/remote-sync" element={<RemoteSyncPage />} />
 
         {/* GAME-SPECIFIC ROUTES: Uncomment and implement these in your game implementation */}
         {/* <Route path="/parse-data" element={<ParseDataPage />} /> */}
@@ -127,7 +145,6 @@ function App() {
         <Route path="/match-validation" element={<MatchValidationPage />} />
         <Route path="/dev-utilities" element={<DevUtilitiesPage />} />
 
-
         {/* Add more routes as needed */}
         <Route path="*" element={<NotFoundPage />} />
       </Route>
@@ -138,11 +155,11 @@ function App() {
 
   useEffect(() => {
     void ensureStrategySnapshotsCurrent().catch(error => {
-      console.error("Failed to initialize strategy snapshot cache:", error);
+      console.error('Failed to initialize strategy snapshot cache:', error);
     });
 
-    if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/sw.js");
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js');
     }
 
     // Track PWA install prompt
@@ -165,7 +182,7 @@ function App() {
         // Make achievement functions available globally for debugging
         import('@/core/lib/achievementUtils').then(achievementUtils => {
           (window as any).achievements = {
-            backfillAll: achievementUtils.backfillAchievementsForAllScouts
+            backfillAll: achievementUtils.backfillAchievementsForAllScouts,
           };
         });
 
@@ -174,7 +191,7 @@ function App() {
           (window as any).dev = {
             seedData: () => testData.generateRandomScoutingData(30),
             seedScouts: testData.generateRandomScouts,
-            resetDB: testData.resetEntireDatabase
+            resetDB: testData.resetEntireDatabase,
           };
           console.log('🧪 Dev utilities available on window.dev');
         });
@@ -184,13 +201,12 @@ function App() {
           (window as any).dbs = {
             main: db.db,
             pit: db.pitDB,
-            game: db.gameDB
+            game: db.gameDB,
           };
           console.log('🗄️ Databases available at window.dbs');
         });
       }, 2000);
     }
-
   }, []);
 
   if (showSplash) {
@@ -218,4 +234,4 @@ function App() {
   );
 }
 
-export default App
+export default App;

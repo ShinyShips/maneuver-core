@@ -1,11 +1,11 @@
-import * as React from "react"
-import { LayoutDashboard, Settings, SquarePen } from "lucide-react"
+import * as React from 'react';
+import { LayoutDashboard, Settings, SquarePen } from 'lucide-react';
 
 // import { NavDocuments } from "@/core/components/dashboard/nav-documents"
-import { NavMain } from "@/core/components/dashboard/nav-main"
+import { NavMain } from '@/core/components/dashboard/nav-main';
 // import { NavSecondary } from "@/core/components/dashboard/nav-secondary"
-import { NavUser } from "@/core/components/dashboard/nav-user"
-import { DataAttribution } from "@/core/components/DataAttribution"
+import { NavUser } from '@/core/components/dashboard/nav-user';
+import { DataAttribution } from '@/core/components/DataAttribution';
 import {
   Sidebar,
   SidebarContent,
@@ -15,10 +15,10 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   useSidebar,
-} from "@/core/components/ui/sidebar"
-import { Separator } from "@/core/components/ui/separator"
-import ManeuverHorizontalLogo from "@/assets/Maneuver Wordmark Horizontal.png"
-import { haptics } from "@/core/lib/haptics"
+} from '@/core/components/ui/sidebar';
+import { Separator } from '@/core/components/ui/separator';
+import ManeuverHorizontalLogo from '@/assets/Maneuver Wordmark Horizontal.png';
+import { haptics } from '@/core/lib/haptics';
 
 const data = {
   navMain: [
@@ -38,191 +38,193 @@ const data = {
     //   ]
     // },
     {
-      title: "Data Actions",
-      url: "#",
+      title: 'Data Actions',
+      url: '#',
       icon: Settings,
       items: [
         {
-          title: "Clear Data",
-          url: "/clear-data",
+          title: 'Clear Data',
+          url: '/clear-data',
         },
         {
-          title: "JSON Data Transfer",
-          url: "/json-transfer",
+          title: 'JSON Data Transfer',
+          url: '/json-transfer',
         },
         {
-          title: "QR Data Transfer",
-          url: "/qr-transfer",
+          title: 'QR Data Transfer',
+          url: '/qr-transfer',
         },
         {
-          title: "WiFi Transfer (Beta)",
-          url: "/peer-transfer",
+          title: 'WiFi Transfer (Beta)',
+          url: '/peer-transfer',
         },
         {
-          title: "API Data",
-          url: "/api-data",
-        }
-      ]
-    },
-    {
-      title: "Strategy",
-      url: "#",
-      icon: SquarePen,
-      items: [
-        {
-          title: "Strategy Overview",
-          url: "/strategy-overview",
+          title: 'Remote Sync',
+          url: '/remote-sync',
         },
         {
-          title: "Match Strategy",
-          url: "/match-strategy",
+          title: 'API Data',
+          url: '/api-data',
         },
-        {
-          title: "Match Validation",
-          url: "/match-validation",
-        },
-        {
-          title: "Team Stats",
-          url: "/team-stats",
-        },
-        {
-          title: "Pit Scouting",
-          url: "/pit-scouting",
-        },
-        {
-          title: "Pick Lists",
-          url: "/pick-list",
-        }
       ],
     },
     {
-      title: "Scout Management",
-      url: "#",
+      title: 'Strategy',
+      url: '#',
+      icon: SquarePen,
+      items: [
+        {
+          title: 'Strategy Overview',
+          url: '/strategy-overview',
+        },
+        {
+          title: 'Match Strategy',
+          url: '/match-strategy',
+        },
+        {
+          title: 'Match Validation',
+          url: '/match-validation',
+        },
+        {
+          title: 'Team Stats',
+          url: '/team-stats',
+        },
+        {
+          title: 'Pit Scouting',
+          url: '/pit-scouting',
+        },
+        {
+          title: 'Pick Lists',
+          url: '/pick-list',
+        },
+      ],
+    },
+    {
+      title: 'Scout Management',
+      url: '#',
       icon: LayoutDashboard,
       items: [
         {
-          title: "Scout Dashboard",
-          url: "/scout-management",
+          title: 'Scout Dashboard',
+          url: '/scout-management',
         },
         {
-          title: "Achievements",
-          url: "/achievements",
+          title: 'Achievements',
+          url: '/achievements',
         },
         {
-          title: "Assign Pit Scouting",
-          url: "/pit-assignments",
+          title: 'Assign Pit Scouting',
+          url: '/pit-assignments',
         },
-        ...(import.meta.env.DEV ? [{
-          title: "Dev Utilities",
-          url: "/dev-utilities",
-        }] : [])
+        ...(import.meta.env.DEV
+          ? [
+              {
+                title: 'Dev Utilities',
+                url: '/dev-utilities',
+              },
+            ]
+          : []),
       ],
     },
   ],
   navSecondary: [
     {
-      title: "Get Help (WIP)",
-      url: "#",
+      title: 'Get Help (WIP)',
+      url: '#',
       // icon: IconHelp,
     },
   ],
   documents: [
     {
-      name: "Saved Match Strategies (WIP)",
-      url: "#",
+      name: 'Saved Match Strategies (WIP)',
+      url: '#',
       // icon: IconDatabase,
     },
   ],
-}
+};
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
-  const { setOpenMobile } = useSidebar()
-  const touchStartRef = React.useRef<{ x: number; y: number } | null>(null)
+  const { setOpenMobile } = useSidebar();
+  const touchStartRef = React.useRef<{ x: number; y: number } | null>(null);
 
   const handleTouchStart = (e: React.TouchEvent) => {
-    const touch = e.touches[0]
-    if (!touch) return
+    const touch = e.touches[0];
+    if (!touch) return;
 
-    touchStartRef.current = { x: touch.clientX, y: touch.clientY }
-  }
+    touchStartRef.current = { x: touch.clientX, y: touch.clientY };
+  };
 
   const handleTouchEnd = (e: React.TouchEvent) => {
-    if (!touchStartRef.current) return
+    if (!touchStartRef.current) return;
 
-    const touch = e.changedTouches[0]
-    if (!touch) return
+    const touch = e.changedTouches[0];
+    if (!touch) return;
 
-    const deltaX = touch.clientX - touchStartRef.current.x
-    const deltaY = touch.clientY - touchStartRef.current.y
-    const minSwipeDistance = 60
+    const deltaX = touch.clientX - touchStartRef.current.x;
+    const deltaY = touch.clientY - touchStartRef.current.y;
+    const minSwipeDistance = 60;
 
     if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > minSwipeDistance) {
       if (deltaX < -minSwipeDistance) {
-        e.preventDefault()
-        haptics.light()
-        setOpenMobile(false)
+        e.preventDefault();
+        haptics.light();
+        setOpenMobile(false);
       }
     }
 
-    touchStartRef.current = null
-  }
+    touchStartRef.current = null;
+  };
 
   React.useEffect(() => {
     const handleGlobalTouchStart = (e: TouchEvent) => {
-      const sidebar = document.querySelector('[data-sidebar="sidebar"]')
+      const sidebar = document.querySelector('[data-sidebar="sidebar"]');
       if (sidebar && !sidebar.contains(e.target as Node)) {
-        const touch = e.touches[0]
-        if (!touch) return
+        const touch = e.touches[0];
+        if (!touch) return;
 
-        touchStartRef.current = { x: touch.clientX, y: touch.clientY }
+        touchStartRef.current = { x: touch.clientX, y: touch.clientY };
       }
-    }
+    };
 
     const handleGlobalTouchEnd = (e: TouchEvent) => {
-      if (!touchStartRef.current) return
+      if (!touchStartRef.current) return;
 
-      const sidebar = document.querySelector('[data-sidebar="sidebar"]')
+      const sidebar = document.querySelector('[data-sidebar="sidebar"]');
       if (sidebar && !sidebar.contains(e.target as Node)) {
-        const touch = e.changedTouches[0]
-        if (!touch) return
+        const touch = e.changedTouches[0];
+        if (!touch) return;
 
-        const deltaX = touch.clientX - touchStartRef.current.x
-        const deltaY = touch.clientY - touchStartRef.current.y
-        const minSwipeDistance = 60
+        const deltaX = touch.clientX - touchStartRef.current.x;
+        const deltaY = touch.clientY - touchStartRef.current.y;
+        const minSwipeDistance = 60;
 
         if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > minSwipeDistance) {
           if (deltaX < -minSwipeDistance) {
-            e.preventDefault()
-            haptics.light()
-            setOpenMobile(false)
+            e.preventDefault();
+            haptics.light();
+            setOpenMobile(false);
           }
         }
       }
 
-      touchStartRef.current = null
-    }
+      touchStartRef.current = null;
+    };
 
-    document.addEventListener('touchstart', handleGlobalTouchStart, { passive: true })
-    document.addEventListener('touchend', handleGlobalTouchEnd, { passive: false })
+    document.addEventListener('touchstart', handleGlobalTouchStart, { passive: true });
+    document.addEventListener('touchend', handleGlobalTouchEnd, { passive: false });
 
     return () => {
-      document.removeEventListener('touchstart', handleGlobalTouchStart)
-      document.removeEventListener('touchend', handleGlobalTouchEnd)
-    }
-  }, [setOpenMobile])
+      document.removeEventListener('touchstart', handleGlobalTouchStart);
+      document.removeEventListener('touchend', handleGlobalTouchEnd);
+    };
+  }, [setOpenMobile]);
 
   return (
     <Sidebar variant="inset" {...props}>
-      <SidebarHeader
-        onTouchStart={handleTouchStart}
-        onTouchEnd={handleTouchEnd}
-      >
+      <SidebarHeader onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton
-              asChild
-              className="data-[slot=sidebar-menu-button] h-fit"
-            >
+            <SidebarMenuButton asChild className="data-[slot=sidebar-menu-button] h-fit">
               <img
                 src={ManeuverHorizontalLogo}
                 className="row-span-4 scale-75 dark:invert"
@@ -235,10 +237,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarHeader>
-      <SidebarContent
-        onTouchStart={handleTouchStart}
-        onTouchEnd={handleTouchEnd}
-      >
+      <SidebarContent onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
         <NavMain items={data.navMain} />
       </SidebarContent>
       <SidebarFooter>
@@ -248,5 +247,5 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <NavUser />
       </SidebarFooter>
     </Sidebar>
-  )
+  );
 }
