@@ -1,8 +1,8 @@
 /**
  * @maneuver/core
- * 
+ *
  * Year-agnostic FRC scouting framework
- * 
+ *
  * This package provides the core infrastructure for building
  * custom FRC scouting applications that work offline-first.
  */
@@ -24,6 +24,9 @@ export * from './contexts';
 
 // Utility Functions
 export * from './lib';
+
+// Remote sync protocol and supported backend adapters
+export * from './core/sync';
 
 // Game Interfaces (contracts for game-specific implementations)
 export type {

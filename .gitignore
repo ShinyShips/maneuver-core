@@ -19,6 +19,9 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
 
 # Local env files
 .env*.local
@@ -44,6 +47,9 @@ maneuver-core.code-workspace
 
 # Local Netlify folder
 .netlify
+
+# Local tool runtimes
+.local-tools/
 
 # AI workflow artifacts
 .agents/

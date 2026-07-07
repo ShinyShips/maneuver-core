@@ -1,0 +1,15 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "document_changes",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "cursor",
+          "order": "ASCENDING"
+        }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

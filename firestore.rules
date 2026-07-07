@@ -1,0 +1,14 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Local/dev Remote sync harness rules.
+    //
+    // These are intentionally permissive so the unauthenticated Firebase web SDK
+    // path can exercise Maneuver's adapter boundary against the emulator.
+    // Replace before deploying Remote sync to a real team backend.
+    match /datasets/{datasetId}/{document=**} {
+      allow read, write: if true;
+    }
+  }
+}
