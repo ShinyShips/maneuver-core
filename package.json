@@ -13,6 +13,7 @@
     "lint": "eslint . --ext .ts,.tsx",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
     "clean": "rimraf dist",
+    "test:remote-sync": "node scripts/remote-sync-contract.mjs",
     "firebase:emulators": "node scripts/start-firestore-emulator.mjs",
     "smoke:remote-sync": "node scripts/remote-sync-smoke.mjs",
     "smoke:remote-sync:emulator": "node scripts/remote-sync-smoke.mjs --emulator"

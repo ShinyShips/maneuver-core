@@ -1,9 +1,9 @@
 /**
  * Generic Dexie database layer for maneuver-core
- * 
+ *
  * This is the year-agnostic database infrastructure.
  * Game-specific data goes in the `gameData` field as JSON.
- * 
+ *
  * Two separate databases:
  * 1. MatchScoutingDB - Match scouting entries
  * 2. PitScoutingDB - Pit scouting/robot capabilities
@@ -20,10 +20,11 @@ import type {
   PitScoutingEntryBase,
   PitScoutingStats,
 } from '../types';
-import type {
-  StrategySnapshot,
-  StrategySnapshotCacheMetadata,
-} from '../types/strategy-snapshot';
+import type { StrategySnapshot, StrategySnapshotCacheMetadata } from '../types/strategy-snapshot';
+
+interface RemoteSyncQueueOptions {
+  queueRemoteSync?: boolean;
+}
 
 // ============================================================================
 // DATABASE CLASSES
@@ -41,11 +42,13 @@ export class MatchScoutingDB extends Dexie {
     super('MatchScoutingDB');
 
     this.version(1).stores({
-      scoutingData: 'id, teamNumber, matchNumber, allianceColor, scoutName, eventKey, matchKey, timestamp, isCorrected, [teamNumber+eventKey], [scoutName+eventKey+matchNumber]'
+      scoutingData:
+        'id, teamNumber, matchNumber, allianceColor, scoutName, eventKey, matchKey, timestamp, isCorrected, [teamNumber+eventKey], [scoutName+eventKey+matchNumber]',
     });
 
     this.version(3).stores({
-      scoutingData: 'id, teamNumber, matchNumber, allianceColor, scoutName, eventKey, matchKey, timestamp, isCorrected, [teamNumber+eventKey], [scoutName+eventKey+matchNumber]',
+      scoutingData:
+        'id, teamNumber, matchNumber, allianceColor, scoutName, eventKey, matchKey, timestamp, isCorrected, [teamNumber+eventKey], [scoutName+eventKey+matchNumber]',
       strategySnapshots: 'id, teamNumber, eventKey, updatedAt, cacheVersion, [teamNumber+eventKey]',
       strategyCacheMetadata: 'id, version, updatedAt',
     });
@@ -62,7 +65,7 @@ export class PitScoutingDB extends Dexie {
     super('PitScoutingDB');
 
     this.version(1).stores({
-      pitScoutingData: 'id, teamNumber, eventKey, scoutName, timestamp, [teamNumber+eventKey]'
+      pitScoutingData: 'id, teamNumber, eventKey, scoutName, timestamp, [teamNumber+eventKey]',
     });
   }
 }
@@ -75,11 +78,15 @@ export const db = new MatchScoutingDB();
 export const pitDB = new PitScoutingDB();
 
 db.on('blocked', () => {
-  console.warn('MatchScoutingDB upgrade blocked. Close other tabs or older app instances, then reload.');
+  console.warn(
+    'MatchScoutingDB upgrade blocked. Close other tabs or older app instances, then reload.'
+  );
 });
 
 db.on('versionchange', () => {
-  console.warn('MatchScoutingDB version change detected. Closing current connection so the upgrade can proceed.');
+  console.warn(
+    'MatchScoutingDB version change detected. Closing current connection so the upgrade can proceed.'
+  );
   db.close();
 });
 
@@ -100,30 +107,44 @@ pitDB.open().catch(error => {
  * Save a single scouting entry
  */
 export const saveScoutingEntry = async <TGameData = Record<string, unknown>>(
-  entry: ScoutingEntryBase<TGameData>
+  entry: ScoutingEntryBase<TGameData>,
+  options: RemoteSyncQueueOptions = {}
 ): Promise<void> => {
   const existingEntry = await db.scoutingData.get(entry.id);
   await db.scoutingData.put(entry as ScoutingEntryBase<Record<string, unknown>>);
-  const { applyScoutingEntryUpsertToStrategySnapshots } = await import('@/core/lib/strategySnapshotCache');
+  const { applyScoutingEntryUpsertToStrategySnapshots } =
+    await import('@/core/lib/strategySnapshotCache');
   await applyScoutingEntryUpsertToStrategySnapshots(
     entry as ScoutingEntryBase<Record<string, unknown>>,
     existingEntry
   );
+  if (options.queueRemoteSync !== false) {
+    const { enqueueScoutingEntryUpsert } = await import('@/core/sync/remoteSyncQueue');
+    enqueueScoutingEntryUpsert(entry as ScoutingEntryBase<Record<string, unknown>>);
+  }
 };
 
 /**
  * Save multiple scouting entries (bulk operation)
  */
 export const saveScoutingEntries = async <TGameData = Record<string, unknown>>(
-  entries: ScoutingEntryBase<TGameData>[]
+  entries: ScoutingEntryBase<TGameData>[],
+  options: RemoteSyncQueueOptions = {}
 ): Promise<void> => {
   const existingEntries = await db.scoutingData.bulkGet(entries.map(entry => entry.id));
   await db.scoutingData.bulkPut(entries as ScoutingEntryBase<Record<string, unknown>>[]);
-  const { applyScoutingEntriesUpsertToStrategySnapshots } = await import('@/core/lib/strategySnapshotCache');
+  const { applyScoutingEntriesUpsertToStrategySnapshots } =
+    await import('@/core/lib/strategySnapshotCache');
   await applyScoutingEntriesUpsertToStrategySnapshots(
     entries as ScoutingEntryBase<Record<string, unknown>>[],
     existingEntries.filter((entry): entry is ScoutingEntryBase<Record<string, unknown>> => !!entry)
   );
+  if (options.queueRemoteSync !== false) {
+    const { enqueueScoutingEntryUpsert } = await import('@/core/sync/remoteSyncQueue');
+    entries.forEach(entry =>
+      enqueueScoutingEntryUpsert(entry as ScoutingEntryBase<Record<string, unknown>>)
+    );
+  }
 };
 
 /**
@@ -207,7 +228,8 @@ export const updateScoutingEntryWithCorrection = async <TGameData = Record<strin
   id: string,
   newData: ScoutingEntryBase<TGameData>,
   correctionNotes: string,
-  correctedBy: string
+  correctedBy: string,
+  options: RemoteSyncQueueOptions = {}
 ): Promise<void> => {
   const existing = await db.scoutingData.get(id);
   if (!existing) {
@@ -215,7 +237,7 @@ export const updateScoutingEntryWithCorrection = async <TGameData = Record<strin
   }
 
   const updatedEntry: Partial<ScoutingEntryBase<Record<string, unknown>>> = {
-    ...newData as ScoutingEntryBase<Record<string, unknown>>,
+    ...(newData as ScoutingEntryBase<Record<string, unknown>>),
     timestamp: Date.now(),
     isCorrected: true,
     correctionCount: (existing.correctionCount || 0) + 1,
@@ -225,22 +247,35 @@ export const updateScoutingEntryWithCorrection = async <TGameData = Record<strin
   };
 
   await db.scoutingData.put(updatedEntry as ScoutingEntryBase<Record<string, unknown>>);
-  const { applyScoutingEntryUpsertToStrategySnapshots } = await import('@/core/lib/strategySnapshotCache');
+  const { applyScoutingEntryUpsertToStrategySnapshots } =
+    await import('@/core/lib/strategySnapshotCache');
   await applyScoutingEntryUpsertToStrategySnapshots(
     updatedEntry as ScoutingEntryBase<Record<string, unknown>>,
     existing
   );
+  if (options.queueRemoteSync !== false) {
+    const { enqueueScoutingEntryUpsert } = await import('@/core/sync/remoteSyncQueue');
+    enqueueScoutingEntryUpsert(updatedEntry as ScoutingEntryBase<Record<string, unknown>>);
+  }
 };
 
 /**
  * Delete a single scouting entry
  */
-export const deleteScoutingEntry = async (id: string): Promise<void> => {
+export const deleteScoutingEntry = async (
+  id: string,
+  options: RemoteSyncQueueOptions = {}
+): Promise<void> => {
   const existing = await db.scoutingData.get(id);
   await db.scoutingData.delete(id);
   if (existing) {
-    const { applyScoutingEntryDeleteToStrategySnapshots } = await import('@/core/lib/strategySnapshotCache');
+    const { applyScoutingEntryDeleteToStrategySnapshots } =
+      await import('@/core/lib/strategySnapshotCache');
     await applyScoutingEntryDeleteToStrategySnapshots(existing);
+    if (options.queueRemoteSync !== false) {
+      const { enqueueScoutingEntryTombstone } = await import('@/core/sync/remoteSyncQueue');
+      enqueueScoutingEntryTombstone(existing);
+    }
   }
 };
 
@@ -249,7 +284,8 @@ export const deleteScoutingEntry = async (id: string): Promise<void> => {
  */
 export const updateScoutingEntryIgnoreForStats = async (
   id: string,
-  ignoreForStats: boolean
+  ignoreForStats: boolean,
+  options: RemoteSyncQueueOptions = {}
 ): Promise<void> => {
   const existing = await db.scoutingData.get(id);
   if (!existing) {
@@ -261,7 +297,8 @@ export const updateScoutingEntryIgnoreForStats = async (
     throw new Error(`Scouting entry not found: ${id}`);
   }
 
-  const { applyScoutingEntryUpsertToStrategySnapshots } = await import('@/core/lib/strategySnapshotCache');
+  const { applyScoutingEntryUpsertToStrategySnapshots } =
+    await import('@/core/lib/strategySnapshotCache');
   await applyScoutingEntryUpsertToStrategySnapshots(
     {
       ...existing,
@@ -269,6 +306,13 @@ export const updateScoutingEntryIgnoreForStats = async (
     },
     existing
   );
+  if (options.queueRemoteSync !== false) {
+    const { enqueueScoutingEntryUpsert } = await import('@/core/sync/remoteSyncQueue');
+    enqueueScoutingEntryUpsert({
+      ...existing,
+      ignoreForStats,
+    });
+  }
 };
 
 /**
@@ -325,7 +369,9 @@ export const getFilterOptions = async (): Promise<FilterOptions> => {
   const stats = await getDBStats();
   const entries = await db.scoutingData.toArray();
 
-  const alliances = [...new Set(entries.map(e => e.allianceColor).filter(Boolean))].sort() as string[];
+  const alliances = [
+    ...new Set(entries.map(e => e.allianceColor).filter(Boolean)),
+  ].sort() as string[];
 
   return {
     teams: stats.teams,
@@ -354,11 +400,24 @@ export const queryScoutingEntries = async <TGameData = Record<string, unknown>>(
   const results = await collection.toArray();
 
   return results.filter(entry => {
-    if (filters.teamNumbers && entry.teamNumber && !filters.teamNumbers.includes(entry.teamNumber)) return false;
-    if (filters.matchNumbers && entry.matchNumber && !filters.matchNumbers.includes(entry.matchNumber)) return false;
-    if (filters.eventKeys && entry.eventKey && !filters.eventKeys.includes(entry.eventKey)) return false;
-    if (filters.alliances && entry.allianceColor && !filters.alliances.includes(entry.allianceColor)) return false;
-    if (filters.scoutNames && entry.scoutName && !filters.scoutNames.includes(entry.scoutName)) return false;
+    if (filters.teamNumbers && entry.teamNumber && !filters.teamNumbers.includes(entry.teamNumber))
+      return false;
+    if (
+      filters.matchNumbers &&
+      entry.matchNumber &&
+      !filters.matchNumbers.includes(entry.matchNumber)
+    )
+      return false;
+    if (filters.eventKeys && entry.eventKey && !filters.eventKeys.includes(entry.eventKey))
+      return false;
+    if (
+      filters.alliances &&
+      entry.allianceColor &&
+      !filters.alliances.includes(entry.allianceColor)
+    )
+      return false;
+    if (filters.scoutNames && entry.scoutName && !filters.scoutNames.includes(entry.scoutName))
+      return false;
     return true;
   }) as ScoutingEntryBase<TGameData>[];
 };
@@ -385,7 +444,9 @@ export const importScoutingData = async <TGameData = Record<string, unknown>>(
   try {
     if (mode === 'overwrite') {
       await clearAllScoutingData();
-      await db.scoutingData.bulkPut(importData.entries as ScoutingEntryBase<Record<string, unknown>>[]);
+      await db.scoutingData.bulkPut(
+        importData.entries as ScoutingEntryBase<Record<string, unknown>>[]
+      );
       const { rebuildStrategySnapshots } = await import('@/core/lib/strategySnapshotCache');
       await rebuildStrategySnapshots();
       return { success: true, importedCount: importData.entries.length };
@@ -394,8 +455,11 @@ export const importScoutingData = async <TGameData = Record<string, unknown>>(
       const existingIdSet = new Set(existingIds);
       const newEntries = importData.entries.filter(entry => !existingIdSet.has(entry.id));
       await db.scoutingData.bulkPut(newEntries as ScoutingEntryBase<Record<string, unknown>>[]);
-      const { applyScoutingEntriesUpsertToStrategySnapshots } = await import('@/core/lib/strategySnapshotCache');
-      await applyScoutingEntriesUpsertToStrategySnapshots(newEntries as ScoutingEntryBase<Record<string, unknown>>[]);
+      const { applyScoutingEntriesUpsertToStrategySnapshots } =
+        await import('@/core/lib/strategySnapshotCache');
+      await applyScoutingEntriesUpsertToStrategySnapshots(
+        newEntries as ScoutingEntryBase<Record<string, unknown>>[]
+      );
       return {
         success: true,
         importedCount: newEntries.length,
@@ -416,45 +480,33 @@ export const importScoutingData = async <TGameData = Record<string, unknown>>(
 // PIT SCOUTING OPERATIONS
 // ============================================================================
 
-export const savePitScoutingEntry = async (
-  entry: PitScoutingEntryBase
-): Promise<void> => {
+export const savePitScoutingEntry = async (entry: PitScoutingEntryBase): Promise<void> => {
   await pitDB.pitScoutingData.put(entry);
 };
 
-export const loadAllPitScoutingEntries = async (): Promise<
-  PitScoutingEntryBase[]
-> => {
-  return (await pitDB.pitScoutingData.toArray());
+export const loadAllPitScoutingEntries = async (): Promise<PitScoutingEntryBase[]> => {
+  return await pitDB.pitScoutingData.toArray();
 };
 
 export const loadPitScoutingByTeam = async (
   teamNumber: number
 ): Promise<PitScoutingEntryBase[]> => {
-  return (await pitDB.pitScoutingData
-    .where('teamNumber')
-    .equals(teamNumber)
-    .toArray());
+  return await pitDB.pitScoutingData.where('teamNumber').equals(teamNumber).toArray();
 };
 
 export const loadPitScoutingByTeamAndEvent = async (
   teamNumber: number,
   eventKey: string
 ): Promise<PitScoutingEntryBase | undefined> => {
-  const results = (await pitDB.pitScoutingData
+  const results = await pitDB.pitScoutingData
     .where('[teamNumber+eventKey]')
     .equals([teamNumber, eventKey])
-    .toArray());
+    .toArray();
   return results.sort((a, b) => b.timestamp - a.timestamp)[0];
 };
 
-export const loadPitScoutingByEvent = async (
-  eventKey: string
-): Promise<PitScoutingEntryBase[]> => {
-  return (await pitDB.pitScoutingData
-    .where('eventKey')
-    .equals(eventKey)
-    .toArray());
+export const loadPitScoutingByEvent = async (eventKey: string): Promise<PitScoutingEntryBase[]> => {
+  return await pitDB.pitScoutingData.where('eventKey').equals(eventKey).toArray();
 };
 
 export const deletePitScoutingEntry = async (id: string): Promise<void> => {

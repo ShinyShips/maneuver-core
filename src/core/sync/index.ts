@@ -27,6 +27,29 @@ export type {
 } from './types';
 
 export {
+  clearRemoteSyncConnection,
+  createRemoteSyncConnection,
+  loadRemoteSyncConnection,
+  parseDatasetJoinArtifact,
+  saveRemoteSyncConnection,
+} from './remoteSyncConnection';
+export {
+  getRemoteSyncQueueHealth,
+  loadRemoteSyncQueue,
+  loadRemoteSyncQueueForDataset,
+} from './remoteSyncQueue';
+export { syncScoutingEntries } from './remoteSyncEngine';
+export { createInMemoryRemoteSyncAdapter } from './testing';
+
+export type {
+  ParseJoinArtifactResult,
+  RemoteSyncConnection,
+  RemoteSyncDeviceDefaults,
+} from './remoteSyncConnection';
+export type { RemoteSyncQueueItem, RemoteSyncQueueOperation } from './remoteSyncQueue';
+export type { RemoteSyncRunResult } from './remoteSyncEngine';
+
+export {
   createFirebaseRemoteSyncAdapter,
   getFirebaseRemoteSyncConfigFromEnv,
   isFirebaseRemoteSyncConfigured,
