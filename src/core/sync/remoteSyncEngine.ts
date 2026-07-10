@@ -15,8 +15,8 @@ import {
   shouldQueueScoutingEntryForConnection,
   type ScoutingEntrySyncDocument,
 } from './scoutingEntryDocuments';
-
-const CURSOR_STORAGE_PREFIX = 'maneuver.remoteSync.cursor';
+import { loadSyncCursor, saveSyncCursor } from './remoteSyncCursor';
+import { markRemoteSyncDocumentsSynced } from './remoteSyncDocumentStatus';
 
 export interface RemoteSyncRunResult {
   pushedCount: number;
@@ -76,7 +76,11 @@ async function ensureRemoteDeviceJoined(
       firebase: connection.firebase,
       firestoreEmulator: connection.firestoreEmulator,
       recommendedDefaults: {
-        scopeKey: connection.scopeKey,
+        scopeKey:
+          connection.eventSyncScope.mode === 'selected' &&
+          connection.eventSyncScope.eventKeys.length === 1
+            ? connection.eventSyncScope.eventKeys[0]
+            : undefined,
         queueMode: 'local-first',
       },
     },
@@ -101,6 +105,10 @@ async function pushQueuedScoutingEntries(
     deviceId: connection.deviceId,
     documents: queueItems.map(item => item.document),
   });
+  markRemoteSyncDocumentsSynced(
+    connection.datasetId,
+    queueItems.map(item => item.documentId)
+  );
   removeRemoteSyncQueueItems(queueItems.map(item => item.id));
 
   return queueItems.length;
@@ -122,8 +130,8 @@ async function pullScoutingEntryChanges(
     });
 
     for (const change of result.changes) {
-      await applyRemoteScoutingEntryChange(connection, change);
-      pulledCount += 1;
+      const applied = await applyRemoteScoutingEntryChange(connection, change);
+      pulledCount += applied ? 1 : 0;
       cursor = Math.max(cursor, change.cursor);
     }
 
@@ -137,19 +145,19 @@ async function pullScoutingEntryChanges(
 async function applyRemoteScoutingEntryChange(
   connection: RemoteSyncConnection,
   change: CanonicalSyncChange<ScoutingEntryBase<Record<string, unknown>>>
-): Promise<void> {
+): Promise<boolean> {
   if (change.documentType !== 'match-scouting-entry') {
-    return;
+    return false;
   }
 
   const document = change.document as ScoutingEntrySyncDocument;
 
-  if (!shouldQueueScoutingEntryForConnection(document.payload, connection.scopeKey)) {
-    return;
+  if (!shouldQueueScoutingEntryForConnection(document.payload, connection.eventSyncScope)) {
+    return false;
   }
 
   if (document.updatedByDeviceId === connection.deviceId) {
-    return;
+    return false;
   }
 
   const localEntry = await db.scoutingData.get(document.documentId);
@@ -157,13 +165,19 @@ async function applyRemoteScoutingEntryChange(
   if (document.tombstone) {
     if (!localEntry || shouldApplyRemoteScoutingEntry(localEntry, document.payload)) {
       await deleteScoutingEntry(document.documentId, { queueRemoteSync: false });
+      markRemoteSyncDocumentsSynced(connection.datasetId, [document.documentId]);
+      return true;
     }
-    return;
+    return false;
   }
 
   if (shouldApplyRemoteScoutingEntry(localEntry, document.payload)) {
     await saveScoutingEntry(document.payload, { queueRemoteSync: false });
+    markRemoteSyncDocumentsSynced(connection.datasetId, [document.documentId]);
+    return true;
   }
+
+  return false;
 }
 
 function createAdapterForConnection(connection: RemoteSyncConnection): RemoteSyncAdapter {
@@ -171,18 +185,4 @@ function createAdapterForConnection(connection: RemoteSyncConnection): RemoteSyn
     firebase: connection.firebase,
     firestoreEmulator: connection.firestoreEmulator,
   });
-}
-
-function loadSyncCursor(datasetId: string): number {
-  const stored = window.localStorage.getItem(getCursorStorageKey(datasetId));
-  const parsed = Number(stored);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function saveSyncCursor(datasetId: string, cursor: number): void {
-  window.localStorage.setItem(getCursorStorageKey(datasetId), String(cursor));
-}
-
-function getCursorStorageKey(datasetId: string): string {
-  return `${CURSOR_STORAGE_PREFIX}.${datasetId}`;
 }

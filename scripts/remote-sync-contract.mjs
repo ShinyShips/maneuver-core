@@ -57,6 +57,9 @@ export const db = {
     async delete(id: string) {
       activeStore().delete(id);
     },
+    async toArray() {
+      return [...activeStore().values()];
+    },
   },
 };
 
@@ -95,15 +98,22 @@ import assert from 'node:assert/strict';
 import {
   createInMemoryRemoteSyncAdapter,
   createRemoteSyncConnection,
+  createScopedOnlineExportSelection,
+  getEventSyncScope,
+  getScopedOnlineExportDefault,
   getRemoteSyncQueueHealth,
+  loadRemoteSyncConnection,
   loadRemoteSyncQueue,
+  readScopedOnlineScoutingEntries,
   saveRemoteSyncConnection,
   syncScoutingEntries,
+  updateEventSyncScope,
 } from '@/core/sync';
 import {
   __getRemoteSyncContractEntry,
   __resetRemoteSyncContractDb,
   __useRemoteSyncContractDbClient,
+  deleteScoutingEntry,
   saveScoutingEntry,
 } from '@/core/db/database';
 import type { DatasetJoinArtifact } from '@/core/sync';
@@ -195,12 +205,16 @@ function scoutingEntry(overrides: Partial<ScoutingEntryBase<Record<string, unkno
   } satisfies ScoutingEntryBase<Record<string, unknown>>;
 }
 
-function attachClient(clientId: string, artifact: DatasetJoinArtifact): void {
+function attachClient(
+  clientId: string,
+  artifact: DatasetJoinArtifact,
+  eventKeys: string[] | undefined = ['2026miket']
+): void {
   useClient(clientId);
   saveRemoteSyncConnection(
     createRemoteSyncConnection(artifact, {
       deviceDisplayName: clientId,
-      scopeKey: '2026miket',
+      eventKeys,
     })
   );
 }
@@ -236,6 +250,43 @@ async function runContract(): Promise<void> {
       queueMode: 'local-first',
     },
   };
+
+  useClient('join-prune-client');
+  await saveScoutingEntry(
+    scoutingEntry({
+      id: '2026oncmp::qm9::3314::red',
+      eventKey: '2026oncmp',
+      matchKey: 'qm9',
+      matchNumber: 9,
+    })
+  );
+  const joinPruneConnection = createRemoteSyncConnection(artifact, {
+    deviceDisplayName: 'join-prune-client',
+    eventKeys: ['2026miket'],
+  });
+  const joinPrunePreview = await updateEventSyncScope(['2026miket'], {
+    connection: joinPruneConnection,
+  });
+  assert.equal(
+    joinPrunePreview.status,
+    'confirmation-required',
+    'joining with a narrow scope protects pre-join local records as unsynced writes'
+  );
+  assert.equal(loadRemoteSyncConnection(), null, 'join remains pending until local pruning is confirmed');
+  assert.ok(
+    __getRemoteSyncContractEntry('2026oncmp::qm9::3314::red'),
+    'pending join preserves the pre-join local record'
+  );
+  const confirmedJoinPrune = await updateEventSyncScope(['2026miket'], {
+    connection: joinPruneConnection,
+    confirmDiscardUnsyncedWrites: true,
+  });
+  assert.equal(confirmedJoinPrune.status, 'applied', 'confirmed join applies the device-local scope');
+  assert.equal(
+    __getRemoteSyncContractEntry('2026oncmp::qm9::3314::red'),
+    undefined,
+    'confirmed join prunes the out-of-scope pre-join record locally'
+  );
 
   attachClient('client-a', artifact);
   await saveScoutingEntry(scoutingEntry());
@@ -281,6 +332,145 @@ async function runContract(): Promise<void> {
     __getRemoteSyncContractEntry('2026miket::qm1::3314::red')?.timestamp,
     1_000,
     'authoritative conflict replay does not regress another client'
+  );
+
+  useClient('scoped-client');
+  attachClient('scoped-client', artifact, ['2026miket', '2026oncmp']);
+  await saveScoutingEntry(scoutingEntry());
+  await saveScoutingEntry(
+    scoutingEntry({
+      id: '2026oncmp::qm2::3314::blue',
+      eventKey: '2026ONCMP',
+      matchKey: 'qm2',
+      matchNumber: 2,
+      allianceColor: 'blue',
+      timestamp: 2_000,
+    })
+  );
+  assert.equal(loadRemoteSyncQueue().length, 2, 'selected Event sync scope queues each selected event');
+
+  const blockedScopeChange = await updateEventSyncScope(['2026miket']);
+  assert.equal(
+    blockedScopeChange.status,
+    'confirmation-required',
+    'scope reduction with unsynced writes requires confirmation'
+  );
+  assert.equal(blockedScopeChange.unsyncedWriteCount, 1, 'destructive scope change reports discarded writes');
+  assert.deepEqual(
+    getEventSyncScope().eventKeys,
+    ['2026miket', '2026oncmp'],
+    'blocked scope change preserves device configuration'
+  );
+  assert.ok(
+    __getRemoteSyncContractEntry('2026oncmp::qm2::3314::blue'),
+    'blocked scope change preserves local scouting records'
+  );
+
+  const appliedScopeChange = await updateEventSyncScope(['2026miket'], {
+    confirmDiscardUnsyncedWrites: true,
+  });
+  assert.equal(appliedScopeChange.status, 'applied', 'confirmed destructive scope change is applied');
+  assert.equal(appliedScopeChange.prunedRecordCount, 1, 'out-of-scope scouting records are pruned locally');
+  assert.equal(appliedScopeChange.discardedQueueCount, 1, 'out-of-scope queued writes are discarded');
+  assert.equal(
+    __getRemoteSyncContractEntry('2026oncmp::qm2::3314::blue'),
+    undefined,
+    'Scope pruning removes only the out-of-scope local record'
+  );
+  assert.equal(loadRemoteSyncQueue().length, 1, 'in-scope queued writes survive Scope pruning');
+
+  attachClient('tombstone-scope-client', artifact, ['2026miket', '2026oncmp']);
+  await saveScoutingEntry(
+    scoutingEntry({
+      id: '2026oncmp::qm8::3314::red',
+      eventKey: '2026oncmp',
+      matchKey: 'qm8',
+      matchNumber: 8,
+      timestamp: 8_000,
+    })
+  );
+  await syncScoutingEntries(adapter);
+  await deleteScoutingEntry('2026oncmp::qm8::3314::red');
+  assert.equal(loadRemoteSyncQueue()[0]?.operation, 'tombstone', 'local deletion queues a tombstone');
+  const tombstoneScopeChange = await updateEventSyncScope(['2026miket']);
+  assert.equal(
+    tombstoneScopeChange.status,
+    'confirmation-required',
+    'scope reduction protects an out-of-scope queued tombstone'
+  );
+  assert.equal(tombstoneScopeChange.unsyncedWriteCount, 1, 'queued tombstone is counted as unsynced');
+  assert.equal(loadRemoteSyncQueue().length, 1, 'blocked scope change preserves the queued tombstone');
+  const confirmedTombstoneScopeChange = await updateEventSyncScope(['2026miket'], {
+    confirmDiscardUnsyncedWrites: true,
+  });
+  assert.equal(confirmedTombstoneScopeChange.discardedQueueCount, 1, 'confirmation discards tombstone');
+
+  attachClient('all-events-publisher', artifact, []);
+  await saveScoutingEntry(
+    scoutingEntry({
+      id: '2026oncmp::qm3::3314::red',
+      eventKey: '2026ONCMP',
+      matchKey: 'qm3',
+      matchNumber: 3,
+      timestamp: 3_000,
+    })
+  );
+  await syncScoutingEntries(adapter);
+
+  attachClient('scope-widening-client', artifact, ['2026miket']);
+  await syncScoutingEntries(adapter);
+  assert.equal(
+    __getRemoteSyncContractEntry('2026oncmp::qm3::3314::red'),
+    undefined,
+    'narrow scope does not retain another event'
+  );
+
+  const widerExportRead = await readScopedOnlineScoutingEntries(adapter, ['2026miket', '2026oncmp']);
+  assert.equal(
+    widerExportRead.entries.some(entry => entry.id === '2026oncmp::qm3::3314::red'),
+    true,
+    'Scoped online export can read a wider remote event subset'
+  );
+  assert.equal(
+    __getRemoteSyncContractEntry('2026oncmp::qm3::3314::red'),
+    undefined,
+    'wider export reads do not retain the remote record locally'
+  );
+  assert.deepEqual(
+    getEventSyncScope().eventKeys,
+    ['2026miket'],
+    'wider export reads do not widen Event sync scope'
+  );
+
+  await updateEventSyncScope(['2026miket', '2026oncmp']);
+  await syncScoutingEntries(adapter);
+  assert.equal(
+    __getRemoteSyncContractEntry('2026oncmp::qm3::3314::red')?.timestamp,
+    3_000,
+    'widening Event sync scope replays previously skipped cursor history'
+  );
+
+  await updateEventSyncScope(['2026miket']);
+  assert.deepEqual(
+    getScopedOnlineExportDefault().eventKeys,
+    ['2026miket'],
+    'Scoped online export defaults from the current Event sync scope'
+  );
+  const exportSelection = createScopedOnlineExportSelection(['2026miket', '2026oncmp']);
+  assert.deepEqual(
+    exportSelection.eventKeys,
+    ['2026miket', '2026oncmp'],
+    'Scoped online export may read beyond the current replication scope'
+  );
+  assert.deepEqual(
+    getEventSyncScope().eventKeys,
+    ['2026miket'],
+    'wider export reads do not widen local retention'
+  );
+  assert.deepEqual(
+    loadRemoteSyncConnection()?.eventSyncScope.eventKeys,
+    ['2026miket'],
+    'export selection leaves the stored device configuration unchanged'
   );
 }
 

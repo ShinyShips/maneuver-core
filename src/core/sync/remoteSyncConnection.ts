@@ -1,9 +1,12 @@
 import type { DatasetJoinArtifact } from './types';
+import { createEventSyncScope, type EventSyncScope } from './eventSyncScopeModel';
 
 const CONNECTION_STORAGE_KEY = 'maneuver.remoteSync.connection';
 
 export interface RemoteSyncDeviceDefaults {
   deviceDisplayName: string;
+  eventKeys?: string[];
+  /** @deprecated Use eventKeys. Retained for v1 join-artifact compatibility. */
   scopeKey?: string;
 }
 
@@ -18,7 +21,7 @@ export interface RemoteSyncConnection {
   credentialSecret: string;
   deviceId: string;
   deviceDisplayName: string;
-  scopeKey?: string;
+  eventSyncScope: EventSyncScope;
   joinedAt: number;
   queueState: 'not-started' | 'ready';
 }
@@ -115,7 +118,9 @@ export function createRemoteSyncConnection(
     credentialSecret: artifact.credentialSecret,
     deviceId: crypto.randomUUID(),
     deviceDisplayName: defaults.deviceDisplayName,
-    scopeKey: defaults.scopeKey,
+    eventSyncScope: createEventSyncScope(
+      defaults.eventKeys ?? (defaults.scopeKey ? [defaults.scopeKey] : undefined)
+    ),
     joinedAt: Date.now(),
     queueState: 'not-started',
   };
@@ -134,7 +139,15 @@ export function loadRemoteSyncConnection(): RemoteSyncConnection | null {
 
   try {
     const parsed = JSON.parse(stored);
-    return isRemoteSyncConnection(parsed) ? parsed : null;
+
+    if (!isRemoteSyncConnection(parsed)) {
+      return null;
+    }
+
+    return {
+      ...parsed,
+      eventSyncScope: readEventSyncScope(parsed),
+    };
   } catch {
     return null;
   }
@@ -172,6 +185,22 @@ function isRemoteSyncConnection(value: unknown): value is RemoteSyncConnection {
     isNonEmptyString(value.deviceDisplayName) &&
     typeof value.joinedAt === 'number'
   );
+}
+
+function readEventSyncScope(value: unknown): EventSyncScope {
+  if (!isRecord(value)) {
+    return createEventSyncScope();
+  }
+
+  const storedScope = value.eventSyncScope;
+
+  if (isRecord(storedScope) && Array.isArray(storedScope.eventKeys)) {
+    return createEventSyncScope(
+      storedScope.eventKeys.filter((eventKey): eventKey is string => typeof eventKey === 'string')
+    );
+  }
+
+  return createEventSyncScope(typeof value.scopeKey === 'string' ? [value.scopeKey] : undefined);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   CheckCircle2,
   Clipboard,
@@ -30,13 +30,18 @@ import { useRemoteSyncQueueHealth } from '@/core/hooks/useRemoteSyncQueueHealth'
 import {
   createRemoteSyncConnection,
   parseDatasetJoinArtifact,
+  type RemoteSyncConnection,
   type RemoteSyncDeviceDefaults,
 } from '@/core/sync/remoteSyncConnection';
 import { syncScoutingEntries } from '@/core/sync/remoteSyncEngine';
-import type { DatasetJoinArtifact } from '@/core/sync';
+import {
+  updateEventSyncScope,
+  type DatasetJoinArtifact,
+  type EventSyncScopeChangeResult,
+} from '@/core/sync';
 
 export default function RemoteSyncPage() {
-  const { connection, saveConnection, clearConnection } = useRemoteSyncConnection();
+  const { connection, clearConnection } = useRemoteSyncConnection();
   const queueHealth = useRemoteSyncQueueHealth();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [artifactText, setArtifactText] = useState('');
@@ -46,7 +51,13 @@ export default function RemoteSyncPage() {
   const [syncError, setSyncError] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [deviceDisplayName, setDeviceDisplayName] = useState(defaultDeviceName);
-  const [scopeKey, setScopeKey] = useState('');
+  const [eventSyncScopeText, setEventSyncScopeText] = useState('');
+  const [pendingJoinConnection, setPendingJoinConnection] = useState<RemoteSyncConnection | null>(
+    null
+  );
+  const [joinScopeChange, setJoinScopeChange] = useState<EventSyncScopeChangeResult | null>(null);
+  const [joinError, setJoinError] = useState<string | null>(null);
+  const [isAttaching, setIsAttaching] = useState(false);
 
   const artifactSummary = useMemo(() => {
     if (!artifact) {
@@ -73,7 +84,9 @@ export default function RemoteSyncPage() {
 
     const recommendedScope = result.artifact.recommendedDefaults?.scopeKey ?? '';
     setArtifact(result.artifact);
-    setScopeKey(recommendedScope);
+    setEventSyncScopeText(recommendedScope);
+    setPendingJoinConnection(null);
+    setJoinScopeChange(null);
     setParseError(null);
   };
 
@@ -87,17 +100,42 @@ export default function RemoteSyncPage() {
     handleDecodeArtifact(text);
   };
 
-  const handleAttachDevice = () => {
+  const handleAttachDevice = async () => {
     if (!artifact) {
       return;
     }
 
     const defaults: RemoteSyncDeviceDefaults = {
       deviceDisplayName: deviceDisplayName.trim() || defaultDeviceName(),
-      scopeKey: scopeKey.trim() || undefined,
+      eventKeys: parseEventKeys(eventSyncScopeText),
     };
 
-    saveConnection(createRemoteSyncConnection(artifact, defaults));
+    await applyJoinScope(createRemoteSyncConnection(artifact, defaults));
+  };
+
+  const applyJoinScope = async (
+    nextConnection: RemoteSyncConnection,
+    confirmDiscardUnsyncedWrites = false
+  ) => {
+    setIsAttaching(true);
+    setJoinError(null);
+
+    try {
+      const eventKeys =
+        nextConnection.eventSyncScope.mode === 'all'
+          ? undefined
+          : nextConnection.eventSyncScope.eventKeys;
+      const result = await updateEventSyncScope(eventKeys, {
+        connection: nextConnection,
+        confirmDiscardUnsyncedWrites,
+      });
+      setJoinScopeChange(result);
+      setPendingJoinConnection(result.status === 'confirmation-required' ? nextConnection : null);
+    } catch (error) {
+      setJoinError(error instanceof Error ? error.message : 'This device could not be attached.');
+    } finally {
+      setIsAttaching(false);
+    }
   };
 
   const handleSyncNow = async () => {
@@ -270,13 +308,64 @@ export default function RemoteSyncPage() {
                       <Input
                         id="remote-sync-scope"
                         placeholder="2026miket"
-                        value={scopeKey}
-                        onChange={event => setScopeKey(event.target.value)}
+                        value={eventSyncScopeText}
+                        onChange={event => {
+                          setEventSyncScopeText(event.target.value);
+                          setPendingJoinConnection(null);
+                          setJoinScopeChange(null);
+                        }}
                       />
                     </Field>
                   </div>
 
-                  <Button type="button" onClick={handleAttachDevice}>
+                  {joinScopeChange?.status === 'confirmation-required' && pendingJoinConnection && (
+                    <Alert variant="destructive">
+                      <AlertTitle>Local records need confirmation</AlertTitle>
+                      <AlertDescription className="space-y-3">
+                        <p>
+                          This Event sync scope would discard {joinScopeChange.unsyncedWriteCount}{' '}
+                          unsynced local write
+                          {joinScopeChange.unsyncedWriteCount === 1 ? '' : 's'} and prune{' '}
+                          {joinScopeChange.prunableRecordCount} local scouting record
+                          {joinScopeChange.prunableRecordCount === 1 ? '' : 's'} while attaching.
+                          The Team dataset will not be changed.
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            disabled={isAttaching}
+                            onClick={() => void applyJoinScope(pendingJoinConnection, true)}
+                          >
+                            Confirm and attach
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => {
+                              setPendingJoinConnection(null);
+                              setJoinScopeChange(null);
+                            }}
+                          >
+                            Keep local records
+                          </Button>
+                        </div>
+                      </AlertDescription>
+                    </Alert>
+                  )}
+
+                  {joinError && (
+                    <Alert variant="destructive">
+                      <AlertTitle>Join blocked</AlertTitle>
+                      <AlertDescription>{joinError}</AlertDescription>
+                    </Alert>
+                  )}
+
+                  <Button
+                    type="button"
+                    disabled={isAttaching}
+                    onClick={() => void handleAttachDevice()}
+                  >
                     <CheckCircle2 />
                     Attach this device
                   </Button>
@@ -303,37 +392,140 @@ function JoinedDatasetPanel({
   onSyncNow,
   onDisconnect,
 }: {
-  connection: ReturnType<typeof createRemoteSyncConnection>;
+  connection: RemoteSyncConnection;
   pendingWrites: number;
   queueState: string;
   isSyncing: boolean;
   onSyncNow: () => void;
   onDisconnect: () => void;
 }) {
+  const [scopeText, setScopeText] = useState(() => formatEventSyncScopeInput(connection));
+  const [scopeChange, setScopeChange] = useState<EventSyncScopeChangeResult | null>(null);
+  const [scopeError, setScopeError] = useState<string | null>(null);
+  const [isSavingScope, setIsSavingScope] = useState(false);
+
+  useEffect(() => {
+    setScopeText(formatEventSyncScopeInput(connection));
+  }, [connection]);
+
+  const handleScopeUpdate = async (confirmDiscardUnsyncedWrites = false) => {
+    setIsSavingScope(true);
+    setScopeError(null);
+
+    try {
+      const result = await updateEventSyncScope(parseEventKeys(scopeText), {
+        confirmDiscardUnsyncedWrites,
+      });
+      setScopeChange(result);
+    } catch (error) {
+      setScopeError(
+        error instanceof Error ? error.message : 'Event sync scope could not be saved.'
+      );
+    } finally {
+      setIsSavingScope(false);
+    }
+  };
+
   return (
     <Card className="rounded-md border-emerald-500/40">
-      <CardContent className="flex flex-col gap-4 pt-6 md:flex-row md:items-center md:justify-between">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <CheckCircle2 className="size-5 text-emerald-500" />
-            <h2 className="text-lg font-semibold">Joined to {connection.datasetName}</h2>
+      <CardContent className="flex flex-col gap-5 pt-6">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="size-5 text-emerald-500" />
+              <h2 className="text-lg font-semibold">Joined to {connection.datasetName}</h2>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Device {connection.deviceDisplayName} / {formatEventSyncScope(connection)} /{' '}
+              {pendingWrites} queued change{pendingWrites === 1 ? '' : 's'} /{' '}
+              {formatQueueState(queueState)}
+            </p>
           </div>
-          <p className="text-sm text-muted-foreground">
-            Device {connection.deviceDisplayName}
-            {connection.scopeKey ? ` / scope ${connection.scopeKey}` : ''} / {pendingWrites} queued
-            change{pendingWrites === 1 ? '' : 's'} / {formatQueueState(queueState)}
-          </p>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Button type="button" onClick={onSyncNow} disabled={isSyncing}>
+              {isSyncing ? <RefreshCw className="animate-spin" /> : <RefreshCw />}
+              Sync now
+            </Button>
+            <Button type="button" variant="outline" onClick={onDisconnect}>
+              <Unplug />
+              Disconnect
+            </Button>
+          </div>
         </div>
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <Button type="button" onClick={onSyncNow} disabled={isSyncing}>
-            {isSyncing ? <RefreshCw className="animate-spin" /> : <RefreshCw />}
-            Sync now
-          </Button>
-          <Button type="button" variant="outline" onClick={onDisconnect}>
-            <Unplug />
-            Disconnect
+
+        <Separator />
+
+        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
+          <Field label="Event sync scope" htmlFor="joined-remote-sync-scope">
+            <Input
+              id="joined-remote-sync-scope"
+              placeholder="All events, or comma-separated event keys"
+              value={scopeText}
+              onChange={event => {
+                setScopeText(event.target.value);
+                setScopeChange(null);
+              }}
+            />
+          </Field>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={isSavingScope}
+            onClick={() => void handleScopeUpdate()}
+          >
+            Save local scope
           </Button>
         </div>
+        <p className="text-xs text-muted-foreground">
+          Blank means all events. Narrowing this device&apos;s scope prunes out-of-scope scouting
+          records locally; it never deletes records from the shared Team dataset.
+        </p>
+
+        {scopeChange?.status === 'confirmation-required' && (
+          <Alert variant="destructive">
+            <AlertTitle>Destructive scope change</AlertTitle>
+            <AlertDescription className="space-y-3">
+              <p>
+                This local-only change would discard {scopeChange.unsyncedWriteCount} unsynced local
+                write{scopeChange.unsyncedWriteCount === 1 ? '' : 's'} and prune{' '}
+                {scopeChange.prunableRecordCount} local scouting record
+                {scopeChange.prunableRecordCount === 1 ? '' : 's'}. Team dataset records are not
+                deleted.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="destructive"
+                  disabled={isSavingScope}
+                  onClick={() => void handleScopeUpdate(true)}
+                >
+                  Confirm local pruning
+                </Button>
+                <Button type="button" variant="outline" onClick={() => setScopeChange(null)}>
+                  Keep current scope
+                </Button>
+              </div>
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {scopeChange?.status === 'applied' && (
+          <Alert>
+            <AlertTitle>Local scope updated</AlertTitle>
+            <AlertDescription>
+              Pruned {scopeChange.prunedRecordCount} local record
+              {scopeChange.prunedRecordCount === 1 ? '' : 's'}. Team dataset contents were not
+              changed.
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {scopeError && (
+          <Alert variant="destructive">
+            <AlertTitle>Scope update blocked</AlertTitle>
+            <AlertDescription>{scopeError}</AlertDescription>
+          </Alert>
+        )}
       </CardContent>
     </Card>
   );
@@ -393,4 +585,29 @@ function formatQueueState(state: string): string {
     default:
       return 'Queue pending';
   }
+}
+
+function parseEventKeys(value: string): string[] | undefined {
+  const eventKeys = value
+    .split(/[\s,]+/)
+    .map(eventKey => eventKey.trim())
+    .filter(Boolean);
+  return eventKeys.length > 0 ? eventKeys : undefined;
+}
+
+function formatEventSyncScope(connection: RemoteSyncConnection): string {
+  return formatEventSyncScopeValue(connection, 'All events');
+}
+
+function formatEventSyncScopeInput(connection: RemoteSyncConnection): string {
+  return formatEventSyncScopeValue(connection, '');
+}
+
+function formatEventSyncScopeValue(
+  connection: RemoteSyncConnection,
+  allEventsValue: string
+): string {
+  return connection.eventSyncScope.mode === 'all'
+    ? allEventsValue
+    : connection.eventSyncScope.eventKeys.join(', ');
 }

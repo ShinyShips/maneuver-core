@@ -39,6 +39,15 @@ export {
   loadRemoteSyncQueueForDataset,
 } from './remoteSyncQueue';
 export { syncScoutingEntries } from './remoteSyncEngine';
+export { readScopedOnlineScoutingEntries } from './scopedOnlineExportRead';
+export {
+  createEventSyncScope,
+  createScopedOnlineExportSelection,
+  eventSyncScopeIncludes,
+  getEventSyncScope,
+  getScopedOnlineExportDefault,
+  updateEventSyncScope,
+} from './eventSyncScope';
 export { createInMemoryRemoteSyncAdapter } from './testing';
 
 export type {
@@ -48,6 +57,13 @@ export type {
 } from './remoteSyncConnection';
 export type { RemoteSyncQueueItem, RemoteSyncQueueOperation } from './remoteSyncQueue';
 export type { RemoteSyncRunResult } from './remoteSyncEngine';
+export type { ScopedOnlineScoutingEntriesRead } from './scopedOnlineExportRead';
+export type {
+  EventSyncScope,
+  EventSyncScopeChangeOptions,
+  EventSyncScopeChangeResult,
+  ScopedOnlineExportSelection,
+} from './eventSyncScope';
 
 export {
   createFirebaseRemoteSyncAdapter,

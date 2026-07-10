@@ -1,5 +1,6 @@
 import type { ScoutingEntryBase } from '@/core/types/scouting-entry';
 import type { CanonicalSyncDocument } from './types';
+import { eventSyncScopeIncludes, type EventSyncScope } from './eventSyncScopeModel';
 
 export type ScoutingEntrySyncDocument = CanonicalSyncDocument<
   ScoutingEntryBase<Record<string, unknown>>
@@ -31,12 +32,9 @@ export function createScoutingEntryTombstoneDocumentCandidate(
 
 export function shouldQueueScoutingEntryForConnection(
   entry: ScoutingEntryBase<Record<string, unknown>>,
-  connectionScopeKey?: string
+  eventSyncScope: EventSyncScope
 ): boolean {
-  return (
-    !connectionScopeKey ||
-    normalizeScopeKey(entry.eventKey) === normalizeScopeKey(connectionScopeKey)
-  );
+  return eventSyncScopeIncludes(eventSyncScope, entry.eventKey);
 }
 
 export function shouldApplyRemoteScoutingEntry(

@@ -5,8 +5,9 @@ import {
   shouldQueueScoutingEntryForConnection,
   type ScoutingEntrySyncDocument,
 } from './scoutingEntryDocuments';
-import { loadRemoteSyncConnection } from './remoteSyncConnection';
+import { loadRemoteSyncConnection, type RemoteSyncConnection } from './remoteSyncConnection';
 import type { QueueHealth } from './types';
+import { markRemoteSyncDocumentUnsynced } from './remoteSyncDocumentStatus';
 
 const QUEUE_STORAGE_KEY = 'maneuver.remoteSync.scoutingQueue';
 const HEALTH_STORAGE_KEY = 'maneuver.remoteSync.queueHealth';
@@ -30,11 +31,8 @@ export interface RemoteSyncQueueItem {
 export function enqueueScoutingEntryUpsert(
   entry: ScoutingEntryBase<Record<string, unknown>>
 ): void {
-  const connection = loadRemoteSyncConnection();
-
-  if (!connection || !shouldQueueScoutingEntryForConnection(entry, connection.scopeKey)) {
-    return;
-  }
+  const connection = prepareScoutingEntryForRemoteQueue(entry);
+  if (!connection) return;
 
   upsertQueueItem({
     id: createQueueItemId(connection.datasetId, entry.id, 'upsert'),
@@ -51,11 +49,8 @@ export function enqueueScoutingEntryUpsert(
 export function enqueueScoutingEntryTombstone(
   entry: ScoutingEntryBase<Record<string, unknown>>
 ): void {
-  const connection = loadRemoteSyncConnection();
-
-  if (!connection || !shouldQueueScoutingEntryForConnection(entry, connection.scopeKey)) {
-    return;
-  }
+  const connection = prepareScoutingEntryForRemoteQueue(entry);
+  if (!connection) return;
 
   upsertQueueItem({
     id: createQueueItemId(connection.datasetId, entry.id, 'tombstone'),
@@ -137,6 +132,21 @@ function upsertQueueItem(nextItem: RemoteSyncQueueItem): void {
     state: 'offline',
     pendingWrites: nextQueue.length,
   });
+}
+
+function prepareScoutingEntryForRemoteQueue(
+  entry: ScoutingEntryBase<Record<string, unknown>>
+): RemoteSyncConnection | null {
+  const connection = loadRemoteSyncConnection();
+
+  if (!connection) {
+    return null;
+  }
+
+  markRemoteSyncDocumentUnsynced(connection.datasetId, entry.id);
+  return shouldQueueScoutingEntryForConnection(entry, connection.eventSyncScope)
+    ? connection
+    : null;
 }
 
 function saveRemoteSyncQueue(queue: RemoteSyncQueueItem[]): void {
