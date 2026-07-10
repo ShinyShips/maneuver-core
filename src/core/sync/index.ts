@@ -27,6 +27,11 @@ export type {
 } from './types';
 
 export {
+  createCanonicalDocumentIdentity,
+  inspectScoutNameCollision,
+  normalizeScoutProfileName,
+} from './canonicalDocumentIdentity';
+export {
   clearRemoteSyncConnection,
   createRemoteSyncConnection,
   loadRemoteSyncConnection,
@@ -38,7 +43,21 @@ export {
   loadRemoteSyncQueue,
   loadRemoteSyncQueueForDataset,
 } from './remoteSyncQueue';
+export {
+  enqueueScoutProfileUpsert,
+  loadScoutProfileQueue,
+  loadScoutProfileQueueForDataset,
+} from './scoutProfileQueue';
+export {
+  loadPendingScoutNameCollisions,
+  resolveScoutNameCollision,
+  ScoutNameCollisionError,
+} from './scoutNameCollision';
 export { syncScoutingEntries } from './remoteSyncEngine';
+export {
+  createScoutProfileSyncDocumentCandidate,
+  reconcileScoutProfile,
+} from './scoutProfileDocuments';
 export { readScopedOnlineScoutingEntries } from './scopedOnlineExportRead';
 export {
   createEventSyncScope,
@@ -51,12 +70,27 @@ export {
 export { createInMemoryRemoteSyncAdapter } from './testing';
 
 export type {
+  CanonicalDocumentIdentity,
+  CanonicalDocumentIdentityInput,
+  ScoutNameCollisionInspection,
+} from './canonicalDocumentIdentity';
+export type {
   ParseJoinArtifactResult,
   RemoteSyncConnection,
   RemoteSyncDeviceDefaults,
 } from './remoteSyncConnection';
 export type { RemoteSyncQueueItem, RemoteSyncQueueOperation } from './remoteSyncQueue';
+export type { ScoutProfileQueueItem } from './scoutProfileQueue';
+export type {
+  PendingScoutNameCollision,
+  ResolveScoutNameCollisionInput,
+} from './scoutNameCollision';
 export type { RemoteSyncRunResult } from './remoteSyncEngine';
+export type {
+  ScoutProfileReconciliation,
+  ScoutProfileSyncDocument,
+  ScoutProfileSyncPayload,
+} from './scoutProfileDocuments';
 export type { ScopedOnlineScoutingEntriesRead } from './scopedOnlineExportRead';
 export type {
   EventSyncScope,

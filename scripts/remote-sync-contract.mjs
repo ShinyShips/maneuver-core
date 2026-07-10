@@ -6,6 +6,7 @@ import { createServer } from 'vite';
 const repoRoot = process.cwd();
 const workDir = path.join(repoRoot, `tmp-remote-sync-contract-${process.pid}`);
 const fakeDbPath = path.join(workDir, 'fake-database.ts');
+const fakeScoutProfileStorePath = path.join(workDir, 'fake-scout-profile-store.ts');
 const entryPath = path.join(workDir, 'remote-sync-contract.ts');
 
 await rm(workDir, { force: true, recursive: true });
@@ -92,23 +93,115 @@ export async function deleteScoutingEntry(
 );
 
 await writeFile(
+  fakeScoutProfileStorePath,
+  `
+import type { ScoutProfileSyncPayload } from '@/core/sync/scoutProfileDocuments';
+import { normalizeScoutProfileName } from '@/core/sync/canonicalDocumentIdentity';
+
+const clientStores = new Map<string, Map<string, ScoutProfileSyncPayload>>();
+let activeClientId = 'default';
+
+function activeStore() {
+  let store = clientStores.get(activeClientId);
+
+  if (!store) {
+    store = new Map();
+    clientStores.set(activeClientId, store);
+  }
+
+  return store;
+}
+
+export function __useRemoteSyncContractScoutProfileClient(clientId: string): void {
+  activeClientId = clientId;
+  activeStore();
+}
+
+export function __resetRemoteSyncContractScoutProfiles(): void {
+  clientStores.clear();
+  activeClientId = 'default';
+}
+
+export function __setRemoteSyncContractScoutProfile(payload: ScoutProfileSyncPayload): void {
+  activeStore().set(normalizeScoutProfileName(payload.scout.name), structuredClone(payload));
+}
+
+export function __getRemoteSyncContractScoutProfile(
+  scoutName: string
+): ScoutProfileSyncPayload | undefined {
+  const payload = activeStore().get(normalizeScoutProfileName(scoutName));
+  return payload ? structuredClone(payload) : undefined;
+}
+
+export async function loadScoutProfileSyncPayload(
+  scoutName: string
+): Promise<ScoutProfileSyncPayload | undefined> {
+  return __getRemoteSyncContractScoutProfile(scoutName);
+}
+
+export async function saveScoutProfileSyncPayload(
+  payload: ScoutProfileSyncPayload
+): Promise<void> {
+  __setRemoteSyncContractScoutProfile(payload);
+}
+
+export async function renameScoutProfileSyncPayload(
+  currentName: string,
+  replacementName: string
+): Promise<void> {
+  const currentKey = normalizeScoutProfileName(currentName);
+  const payload = activeStore().get(currentKey);
+
+  if (!payload) {
+    throw new Error('Local Scout profile was not found.');
+  }
+
+  activeStore().delete(currentKey);
+  __setRemoteSyncContractScoutProfile({
+    scout: { ...payload.scout, name: replacementName },
+    predictions: payload.predictions.map(prediction => ({
+      ...prediction,
+      scoutName: replacementName,
+    })),
+    achievements: payload.achievements.map(achievement => ({
+      ...achievement,
+      scoutName: replacementName,
+    })),
+  });
+}
+`,
+  'utf8'
+);
+
+await writeFile(
   entryPath,
   `
 import assert from 'node:assert/strict';
 import {
+  createCanonicalDocumentIdentity,
   createInMemoryRemoteSyncAdapter,
   createRemoteSyncConnection,
   createScopedOnlineExportSelection,
   getEventSyncScope,
   getScopedOnlineExportDefault,
   getRemoteSyncQueueHealth,
+  enqueueScoutProfileUpsert,
+  loadPendingScoutNameCollisions,
   loadRemoteSyncConnection,
   loadRemoteSyncQueue,
   readScopedOnlineScoutingEntries,
+  resolveScoutNameCollision,
+  reconcileScoutProfile,
   saveRemoteSyncConnection,
   syncScoutingEntries,
   updateEventSyncScope,
 } from '@/core/sync';
+import { inspectScoutNameCollision } from '@/core/sync/canonicalDocumentIdentity';
+import { reconcileCanonicalDocumentCandidate } from '@/core/sync/canonicalDocumentReconciliation';
+import {
+  createScoutProfileSyncDocumentCandidate,
+  type ScoutProfileSyncPayload,
+} from '@/core/sync/scoutProfileDocuments';
 import {
   __getRemoteSyncContractEntry,
   __resetRemoteSyncContractDb,
@@ -118,6 +211,12 @@ import {
 } from '@/core/db/database';
 import type { DatasetJoinArtifact } from '@/core/sync';
 import type { ScoutingEntryBase } from '@/core/types/scouting-entry';
+import {
+  __getRemoteSyncContractScoutProfile,
+  __resetRemoteSyncContractScoutProfiles,
+  __setRemoteSyncContractScoutProfile,
+  __useRemoteSyncContractScoutProfileClient,
+} from '@/core/sync/scoutProfileStore';
 
 class MemoryStorage {
   private values = new Map<string, string>();
@@ -143,6 +242,7 @@ const browserStores = new Map<string, MemoryStorage>();
 
 function useClient(clientId: string): void {
   __useRemoteSyncContractDbClient(clientId);
+  __useRemoteSyncContractScoutProfileClient(clientId);
 
   let storage = browserStores.get(clientId);
 
@@ -221,6 +321,309 @@ function attachClient(
 
 async function runContract(): Promise<void> {
   __resetRemoteSyncContractDb();
+  __resetRemoteSyncContractScoutProfiles();
+
+  assert.deepEqual(
+    createCanonicalDocumentIdentity({
+      documentType: 'match-scouting-entry',
+      payload: scoutingEntry(),
+    }),
+    {
+      documentType: 'match-scouting-entry',
+      documentId: '2026miket::qm1::3314::red',
+      scopeKey: '2026miket',
+    },
+    'match scouting identity preserves its transport-independent record id'
+  );
+  assert.deepEqual(
+    createCanonicalDocumentIdentity({
+      documentType: 'pit-scouting-entry',
+      payload: {
+        id: 'random-local-pit-id',
+        teamNumber: 3314,
+        eventKey: ' 2026MIKET ',
+        scoutName: 'Scout A',
+        timestamp: 1_000,
+        gameData: {},
+      },
+    }),
+    {
+      documentType: 'pit-scouting-entry',
+      documentId: '2026miket:3314',
+      scopeKey: '2026miket',
+    },
+    'pit scouting identity converges on one team per event instead of a random local id'
+  );
+  assert.deepEqual(
+    createCanonicalDocumentIdentity({
+      documentType: 'scout-profile',
+      scoutName: '  Scout   A  ',
+    }),
+    {
+      documentType: 'scout-profile',
+      documentId: 'scout a',
+    },
+    'Scout profile identity is season-wide and normalized without an Event scope key'
+  );
+  assert.deepEqual(
+    inspectScoutNameCollision(['Scout A'], ' scout   a '),
+    {
+      status: 'collision',
+      normalizedName: 'scout a',
+      existingName: 'Scout A',
+    },
+    'an existing normalized Scout name requires an explicit collision decision'
+  );
+
+  const existingScoutProfile = {
+    scout: {
+      name: 'Scout A',
+      stakes: 10,
+      stakesFromPredictions: 8,
+      totalPredictions: 2,
+      correctPredictions: 1,
+      currentStreak: 1,
+      longestStreak: 2,
+      detailedCommentsCount: 3,
+      createdAt: 100,
+      lastUpdated: 200,
+    },
+    predictions: [
+      {
+        id: 'local-qm1',
+        scoutName: 'Scout A',
+        eventKey: '2026MIKET',
+        matchNumber: 1,
+        predictedWinner: 'red',
+        timestamp: 100,
+        verified: false,
+      },
+    ],
+    achievements: [
+      {
+        id: 'local-first',
+        achievementId: 'first',
+        scoutName: 'Scout A',
+        unlockedAt: 150,
+        progress: 100,
+      },
+    ],
+  } satisfies ScoutProfileSyncPayload;
+  const incomingScoutProfile = {
+    scout: {
+      name: ' scout   a ',
+      stakes: 12,
+      stakesFromPredictions: 9,
+      totalPredictions: 3,
+      correctPredictions: 2,
+      currentStreak: 2,
+      longestStreak: 3,
+      detailedCommentsCount: 2,
+      createdAt: 120,
+      lastUpdated: 300,
+    },
+    predictions: [
+      {
+        id: 'remote-qm1',
+        scoutName: ' scout   a ',
+        eventKey: '2026miket',
+        matchNumber: 1,
+        predictedWinner: 'blue',
+        timestamp: 200,
+        verified: false,
+      },
+      {
+        id: 'remote-qm2',
+        scoutName: ' scout   a ',
+        eventKey: '2026miket',
+        matchNumber: 2,
+        predictedWinner: 'red',
+        timestamp: 250,
+        verified: false,
+      },
+    ],
+    achievements: [
+      {
+        id: 'remote-first',
+        achievementId: 'first',
+        scoutName: ' scout   a ',
+        unlockedAt: 140,
+        progress: 50,
+      },
+    ],
+  } satisfies ScoutProfileSyncPayload;
+  assert.deepEqual(
+    reconcileScoutProfile(existingScoutProfile, incomingScoutProfile),
+    {
+      status: 'upsert',
+      payload: {
+        scout: {
+          name: 'Scout A',
+          stakes: 12,
+          stakesFromPredictions: 9,
+          totalPredictions: 3,
+          correctPredictions: 2,
+          currentStreak: 2,
+          longestStreak: 3,
+          detailedCommentsCount: 3,
+          createdAt: 100,
+          lastUpdated: 300,
+        },
+        predictions: [
+          {
+            id: 'remote-qm1',
+            scoutName: 'Scout A',
+            eventKey: '2026miket',
+            matchNumber: 1,
+            predictedWinner: 'blue',
+            timestamp: 200,
+            verified: false,
+          },
+          {
+            id: 'remote-qm2',
+            scoutName: 'Scout A',
+            eventKey: '2026miket',
+            matchNumber: 2,
+            predictedWinner: 'red',
+            timestamp: 250,
+            verified: false,
+          },
+        ],
+        achievements: [
+          {
+            id: 'remote-first',
+            achievementId: 'first',
+            scoutName: 'Scout A',
+            unlockedAt: 140,
+            progress: 100,
+          },
+        ],
+      },
+    },
+    'Scout profile reconciliation durably merges aggregate state, predictions, and achievements'
+  );
+  assert.equal(
+    reconcileScoutProfile(existingScoutProfile, {
+      ...existingScoutProfile,
+      predictions: existingScoutProfile.predictions.map(prediction => ({
+        ...prediction,
+        id: 'same-prediction-from-another-transport',
+        eventKey: prediction.eventKey.toLowerCase(),
+      })),
+    }).status,
+    'no-op',
+    'mixed transports preserve one logical prediction despite transport-local row ids'
+  );
+  const profileCandidate = createScoutProfileSyncDocumentCandidate(incomingScoutProfile);
+  assert.deepEqual(
+    {
+      documentId: profileCandidate.documentId,
+      documentType: profileCandidate.documentType,
+      scopeKey: profileCandidate.scopeKey,
+      tombstone: profileCandidate.tombstone,
+    },
+    {
+      documentId: 'scout a',
+      documentType: 'scout-profile',
+      scopeKey: undefined,
+      tombstone: false,
+    },
+    'Scout profile canonical documents are season-wide and keyed by normalized Scout name'
+  );
+  const canonicalProfileReconciliation = reconcileCanonicalDocumentCandidate(
+    {
+      ...createScoutProfileSyncDocumentCandidate(existingScoutProfile),
+      datasetId: 'identity-contract-dataset',
+      revision: 1,
+      updatedAt: 200,
+      updatedByDeviceId: 'client-a',
+    },
+    profileCandidate
+  );
+  assert.deepEqual(
+    canonicalProfileReconciliation.status === 'commit'
+      ? {
+          status: canonicalProfileReconciliation.status,
+          documentId: canonicalProfileReconciliation.documentCandidate.documentId,
+          scopeKey: canonicalProfileReconciliation.documentCandidate.scopeKey,
+          detailedCommentsCount:
+            canonicalProfileReconciliation.documentCandidate.payload.scout.detailedCommentsCount,
+          predictionIds: canonicalProfileReconciliation.documentCandidate.payload.predictions.map(
+            prediction => prediction.id
+          ),
+          achievementIds:
+            canonicalProfileReconciliation.documentCandidate.payload.achievements.map(
+              achievement => achievement.achievementId
+            ),
+        }
+      : canonicalProfileReconciliation,
+    {
+      status: 'commit',
+      documentId: 'scout a',
+      scopeKey: undefined,
+      detailedCommentsCount: 3,
+      predictionIds: ['remote-qm1', 'remote-qm2'],
+      achievementIds: ['first'],
+    },
+    'the authoritative reconciliation boundary commits a merged Scout profile candidate'
+  );
+
+  const profileAdapter = createInMemoryRemoteSyncAdapter();
+  const profileDataset = await profileAdapter.createDataset({
+    displayName: 'Scout profile reconciliation dataset',
+    operatorDeviceId: 'profile-operator',
+  });
+  const profileCredential = await profileAdapter.createJoinCredential({
+    datasetId: profileDataset.datasetId,
+    operatorDeviceId: 'profile-operator',
+  });
+  const profileArtifact: DatasetJoinArtifact = {
+    protocolVersion: 1,
+    backend: 'firebase',
+    datasetId: profileDataset.datasetId,
+    datasetName: profileDataset.displayName,
+    credentialId: profileCredential.credentialId,
+    credentialSecret: profileCredential.secret,
+    firebase: {
+      projectId: 'profile-reconciliation-contract',
+    },
+    recommendedDefaults: {
+      queueMode: 'local-first',
+    },
+  };
+  for (const deviceId of ['profile-client-a', 'profile-client-b']) {
+    await profileAdapter.joinDataset({
+      artifact: profileArtifact,
+      deviceId,
+      deviceDisplayName: deviceId,
+    });
+  }
+  await profileAdapter.pushDocuments({
+    datasetId: profileDataset.datasetId,
+    deviceId: 'profile-client-a',
+    documents: [createScoutProfileSyncDocumentCandidate(existingScoutProfile)],
+  });
+  const mergedProfilePush = await profileAdapter.pushDocuments({
+    datasetId: profileDataset.datasetId,
+    deviceId: 'profile-client-b',
+    documents: [profileCandidate],
+  });
+  assert.deepEqual(
+    {
+      revision: mergedProfilePush.committed[0]?.revision,
+      detailedCommentsCount:
+        mergedProfilePush.committed[0]?.payload.scout.detailedCommentsCount,
+      predictionIds: mergedProfilePush.committed[0]?.payload.predictions.map(
+        prediction => prediction.id
+      ),
+    },
+    {
+      revision: 2,
+      detailedCommentsCount: 3,
+      predictionIds: ['remote-qm1', 'remote-qm2'],
+    },
+    'the adapter stores the merged Scout profile rather than blindly replacing it'
+  );
 
   useClient('offline-only');
   await saveScoutingEntry(scoutingEntry());
@@ -472,6 +875,119 @@ async function runContract(): Promise<void> {
     ['2026miket'],
     'export selection leaves the stored device configuration unchanged'
   );
+
+  attachClient('profile-sync-client-a', artifact, ['2026miket']);
+  __setRemoteSyncContractScoutProfile(existingScoutProfile);
+  enqueueScoutProfileUpsert('Scout A');
+  assert.equal(
+    getRemoteSyncQueueHealth().pendingWrites,
+    1,
+    'a local Scout profile change enters the durable Remote sync queue'
+  );
+  await syncScoutingEntries(adapter);
+
+  attachClient('profile-sync-client-b', artifact, ['2026oncmp']);
+  await syncScoutingEntries(adapter);
+  assert.deepEqual(
+    __getRemoteSyncContractScoutProfile('scout a'),
+    createScoutProfileSyncDocumentCandidate(existingScoutProfile).payload,
+    'Scout profiles pull onto another joined device regardless of Event sync scope'
+  );
+
+  __setRemoteSyncContractScoutProfile(incomingScoutProfile);
+  enqueueScoutProfileUpsert(' scout   a ');
+  await syncScoutingEntries(adapter);
+
+  useClient('profile-sync-client-a');
+  await syncScoutingEntries(adapter);
+  assert.deepEqual(
+    {
+      detailedCommentsCount:
+        __getRemoteSyncContractScoutProfile('Scout A')?.scout.detailedCommentsCount,
+      predictionIds: __getRemoteSyncContractScoutProfile('Scout A')?.predictions.map(
+        prediction => prediction.id
+      ),
+    },
+    {
+      detailedCommentsCount: 3,
+      predictionIds: ['remote-qm1', 'remote-qm2'],
+    },
+    'joined devices converge the merged durable Scout profile instead of replacing it'
+  );
+
+  const remoteCollisionProfile = {
+    ...existingScoutProfile,
+    scout: {
+      ...existingScoutProfile.scout,
+      name: 'Casey',
+    },
+    predictions: existingScoutProfile.predictions.map(prediction => ({
+      ...prediction,
+      id: 'casey-remote-qm1',
+      scoutName: 'Casey',
+    })),
+    achievements: existingScoutProfile.achievements.map(achievement => ({
+      ...achievement,
+      id: 'casey-remote-first',
+      scoutName: 'Casey',
+    })),
+  } satisfies ScoutProfileSyncPayload;
+  __setRemoteSyncContractScoutProfile(remoteCollisionProfile);
+  enqueueScoutProfileUpsert('Casey');
+  await syncScoutingEntries(adapter);
+
+  attachClient('profile-collision-client', artifact, ['2026miket']);
+  const localCollisionProfile = {
+    ...incomingScoutProfile,
+    scout: {
+      ...incomingScoutProfile.scout,
+      name: ' casey ',
+      detailedCommentsCount: 7,
+    },
+    predictions: incomingScoutProfile.predictions.map(prediction => ({
+      ...prediction,
+      id: 'casey-local-' + prediction.matchNumber,
+      scoutName: ' casey ',
+    })),
+    achievements: incomingScoutProfile.achievements.map(achievement => ({
+      ...achievement,
+      id: 'casey-local-first',
+      scoutName: ' casey ',
+    })),
+  } satisfies ScoutProfileSyncPayload;
+  __setRemoteSyncContractScoutProfile(localCollisionProfile);
+  enqueueScoutProfileUpsert(' casey ');
+  await assert.rejects(
+    () => syncScoutingEntries(adapter),
+    error => error instanceof Error && error.name === 'ScoutNameCollisionError',
+    'an unbound local Scout profile cannot silently merge into an existing normalized name'
+  );
+  assert.deepEqual(
+    loadPendingScoutNameCollisions(dataset.datasetId).map(collision => ({
+      documentId: collision.documentId,
+      localName: collision.localName,
+      remoteName: collision.remoteName,
+    })),
+    [
+      {
+        documentId: 'casey',
+        localName: 'casey',
+        remoteName: 'Casey',
+      },
+    ],
+    'Scout-name collision details remain available for an explicit user choice'
+  );
+  await resolveScoutNameCollision({
+    datasetId: dataset.datasetId,
+    documentId: 'casey',
+    decision: 'join-existing',
+  });
+  await syncScoutingEntries(adapter);
+  assert.equal(
+    __getRemoteSyncContractScoutProfile('Casey')?.scout.detailedCommentsCount,
+    7,
+    'confirming join-existing allows durable profile reconciliation to continue'
+  );
 }
 
 await runContract();
@@ -490,6 +1006,10 @@ const server = await createServer({
       {
         find: '@/core/db/database',
         replacement: fakeDbPath,
+      },
+      {
+        find: '@/core/sync/scoutProfileStore',
+        replacement: fakeScoutProfileStorePath,
       },
       {
         find: '@',

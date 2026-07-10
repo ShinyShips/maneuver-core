@@ -35,6 +35,8 @@ import {
 } from '@/core/sync/remoteSyncConnection';
 import { syncScoutingEntries } from '@/core/sync/remoteSyncEngine';
 import {
+  loadPendingScoutNameCollisions,
+  resolveScoutNameCollision,
   updateEventSyncScope,
   type DatasetJoinArtifact,
   type EventSyncScopeChangeResult,
@@ -184,6 +186,7 @@ export default function RemoteSyncPage() {
             queueState={queueHealth.state}
             isSyncing={isSyncing}
             onSyncNow={() => void handleSyncNow()}
+            onCollisionResolved={() => void handleSyncNow()}
             onDisconnect={clearConnection}
           />
         ) : (
@@ -390,6 +393,7 @@ function JoinedDatasetPanel({
   queueState,
   isSyncing,
   onSyncNow,
+  onCollisionResolved,
   onDisconnect,
 }: {
   connection: RemoteSyncConnection;
@@ -397,12 +401,28 @@ function JoinedDatasetPanel({
   queueState: string;
   isSyncing: boolean;
   onSyncNow: () => void;
+  onCollisionResolved: () => void;
   onDisconnect: () => void;
 }) {
   const [scopeText, setScopeText] = useState(() => formatEventSyncScopeInput(connection));
   const [scopeChange, setScopeChange] = useState<EventSyncScopeChangeResult | null>(null);
   const [scopeError, setScopeError] = useState<string | null>(null);
   const [isSavingScope, setIsSavingScope] = useState(false);
+  const [pendingCollisions, setPendingCollisions] = useState(() =>
+    loadPendingScoutNameCollisions(connection.datasetId)
+  );
+  const [replacementName, setReplacementName] = useState('');
+  const [collisionError, setCollisionError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const refreshCollisions = () => {
+      setPendingCollisions(loadPendingScoutNameCollisions(connection.datasetId));
+    };
+
+    refreshCollisions();
+    window.addEventListener('remoteSyncQueueChanged', refreshCollisions);
+    return () => window.removeEventListener('remoteSyncQueueChanged', refreshCollisions);
+  }, [connection.datasetId]);
 
   useEffect(() => {
     setScopeText(formatEventSyncScopeInput(connection));
@@ -423,6 +443,42 @@ function JoinedDatasetPanel({
       );
     } finally {
       setIsSavingScope(false);
+    }
+  };
+
+  const handleCollisionResolution = async (
+    decision: 'join-existing' | 'use-another-name'
+  ) => {
+    const collision = pendingCollisions[0];
+
+    if (!collision) {
+      return;
+    }
+
+    setCollisionError(null);
+
+    try {
+      await resolveScoutNameCollision(
+        decision === 'join-existing'
+          ? {
+              datasetId: collision.datasetId,
+              documentId: collision.documentId,
+              decision,
+            }
+          : {
+              datasetId: collision.datasetId,
+              documentId: collision.documentId,
+              decision,
+              replacementName,
+            }
+      );
+      setReplacementName('');
+      setPendingCollisions(loadPendingScoutNameCollisions(connection.datasetId));
+      onCollisionResolved();
+    } catch (error) {
+      setCollisionError(
+        error instanceof Error ? error.message : 'Scout-name collision could not be resolved.'
+      );
     }
   };
 
@@ -454,6 +510,44 @@ function JoinedDatasetPanel({
         </div>
 
         <Separator />
+
+        {pendingCollisions[0] && (
+          <Alert variant="destructive">
+            <AlertTitle>Scout-name collision</AlertTitle>
+            <AlertDescription className="space-y-3">
+              <p>
+                Local Scout profile <strong>{pendingCollisions[0].localName}</strong> matches the
+                existing Team dataset profile <strong>{pendingCollisions[0].remoteName}</strong>.
+                Choose explicitly before profile sync continues.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  onClick={() => void handleCollisionResolution('join-existing')}
+                >
+                  Join existing profile
+                </Button>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                <Input
+                  aria-label="Replacement Scout name"
+                  placeholder="Use another Scout name"
+                  value={replacementName}
+                  onChange={event => setReplacementName(event.target.value)}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={!replacementName.trim()}
+                  onClick={() => void handleCollisionResolution('use-another-name')}
+                >
+                  Use another name
+                </Button>
+              </div>
+              {collisionError && <p>{collisionError}</p>}
+            </AlertDescription>
+          </Alert>
+        )}
 
         <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
           <Field label="Event sync scope" htmlFor="joined-remote-sync-scope">

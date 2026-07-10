@@ -35,7 +35,10 @@ import type {
   RotateJoinCredentialInput,
   TeamDataset,
 } from '../types';
-import { shouldCommitCanonicalDocumentCandidate } from '../canonicalDocumentReconciliation';
+import {
+  CanonicalDocumentManualConflictError,
+  reconcileCanonicalDocumentCandidate,
+} from '../canonicalDocumentReconciliation';
 import type { FirebaseRemoteSyncConfig } from './remoteSyncFirebaseConfig';
 
 interface FirestoreCursorMetadata {
@@ -226,7 +229,19 @@ class FirebaseRemoteSyncAdapter implements RemoteSyncAdapter {
           | CanonicalSyncDocument<TPayload>
           | undefined;
 
-        if (!shouldCommitCanonicalDocumentCandidate(existingDocument, documentCandidate)) {
+        const reconciliation = reconcileCanonicalDocumentCandidate(
+          existingDocument,
+          documentCandidate
+        );
+
+        if (reconciliation.status === 'manual-conflict') {
+          throw new CanonicalDocumentManualConflictError(
+            reconciliation.conflictKey,
+            reconciliation.reason
+          );
+        }
+
+        if (reconciliation.status === 'no-op') {
           if (existingDocument) {
             nextCursor += 1;
 
@@ -253,7 +268,7 @@ class FirebaseRemoteSyncAdapter implements RemoteSyncAdapter {
         }
 
         const committedDocument: CanonicalSyncDocument<TPayload> = {
-          ...documentCandidate,
+          ...reconciliation.documentCandidate,
           datasetId: input.datasetId,
           revision: (existingDocument?.revision ?? 0) + 1,
           updatedAt: Date.now(),

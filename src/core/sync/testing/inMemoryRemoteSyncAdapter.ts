@@ -17,7 +17,10 @@ import type {
   RotateJoinCredentialInput,
   TeamDataset,
 } from '../types';
-import { shouldCommitCanonicalDocumentCandidate } from '../canonicalDocumentReconciliation';
+import {
+  CanonicalDocumentManualConflictError,
+  reconcileCanonicalDocumentCandidate,
+} from '../canonicalDocumentReconciliation';
 
 const SYNC_AUTHORITY_DEVICE_ID = 'maneuver-sync-authority';
 
@@ -157,12 +160,19 @@ class InMemoryRemoteSyncAdapter implements RemoteSyncAdapter {
       );
       const existing = dataset.currentDocuments.get(documentKey);
 
-      if (
-        !shouldCommitCanonicalDocumentCandidate(
-          existing as CanonicalSyncDocument<TPayload> | undefined,
-          documentCandidate
-        )
-      ) {
+      const reconciliation = reconcileCanonicalDocumentCandidate(
+        existing as CanonicalSyncDocument<TPayload> | undefined,
+        documentCandidate
+      );
+
+      if (reconciliation.status === 'manual-conflict') {
+        throw new CanonicalDocumentManualConflictError(
+          reconciliation.conflictKey,
+          reconciliation.reason
+        );
+      }
+
+      if (reconciliation.status === 'no-op') {
         if (existing) {
           const authoritativeDocument = {
             ...(existing as CanonicalSyncDocument<TPayload>),
@@ -187,7 +197,7 @@ class InMemoryRemoteSyncAdapter implements RemoteSyncAdapter {
       }
 
       const nextDocument: CanonicalSyncDocument<TPayload> = {
-        ...documentCandidate,
+        ...reconciliation.documentCandidate,
         datasetId: input.datasetId,
         revision: (existing?.revision ?? 0) + 1,
         updatedAt: Date.now(),

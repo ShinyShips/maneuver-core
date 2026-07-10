@@ -8,6 +8,18 @@
 import Dexie, { type Table } from 'dexie';
 import type { Scout, MatchPrediction, ScoutAchievement } from './types';
 
+let remoteSyncQueueSuppressionDepth = 0;
+
+export async function withoutScoutProfileRemoteSyncQueue<T>(work: () => Promise<T>): Promise<T> {
+    remoteSyncQueueSuppressionDepth += 1;
+
+    try {
+        return await work();
+    } finally {
+        remoteSyncQueueSuppressionDepth -= 1;
+    }
+}
+
 /**
  * Scout profile database - gamification, predictions, achievements
  */
@@ -242,7 +254,55 @@ export class ScoutGamificationDB extends Dexie {
                 }
             }
         });
+
+        this.scouts.hook('creating', (_primaryKey, scout) => {
+            queueScoutProfileChange(scout.name);
+        });
+        this.scouts.hook('updating', (changes, _primaryKey, scout) => {
+            const nextName = isRecord(changes) && typeof changes.name === 'string'
+                ? changes.name
+                : scout.name;
+            queueScoutProfileChange(nextName);
+        });
+        this.predictions.hook('creating', (_primaryKey, prediction) => {
+            queueScoutProfileChange(prediction.scoutName);
+        });
+        this.predictions.hook('updating', (changes, _primaryKey, prediction) => {
+            const nextName = isRecord(changes) && typeof changes.scoutName === 'string'
+                ? changes.scoutName
+                : prediction.scoutName;
+            queueScoutProfileChange(nextName);
+        });
+        this.predictions.hook('deleting', (_primaryKey, prediction) => {
+            queueScoutProfileChange(prediction.scoutName);
+        });
+        this.scoutAchievements.hook('creating', (_primaryKey, achievement) => {
+            queueScoutProfileChange(achievement.scoutName);
+        });
+        this.scoutAchievements.hook('updating', (changes, _primaryKey, achievement) => {
+            const nextName = isRecord(changes) && typeof changes.scoutName === 'string'
+                ? changes.scoutName
+                : achievement.scoutName;
+            queueScoutProfileChange(nextName);
+        });
+        this.scoutAchievements.hook('deleting', (_primaryKey, achievement) => {
+            queueScoutProfileChange(achievement.scoutName);
+        });
     }
+}
+
+function queueScoutProfileChange(scoutName: string): void {
+    if (remoteSyncQueueSuppressionDepth > 0 || !scoutName.trim()) {
+        return;
+    }
+
+    void import('@/core/sync/scoutProfileQueue').then(({ enqueueScoutProfileUpsert }) => {
+        enqueueScoutProfileUpsert(scoutName);
+    });
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 // Singleton database instance

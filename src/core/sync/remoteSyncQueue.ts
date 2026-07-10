@@ -8,6 +8,7 @@ import {
 import { loadRemoteSyncConnection, type RemoteSyncConnection } from './remoteSyncConnection';
 import type { QueueHealth } from './types';
 import { markRemoteSyncDocumentUnsynced } from './remoteSyncDocumentStatus';
+import { loadScoutProfileQueue } from './scoutProfileQueue';
 
 const QUEUE_STORAGE_KEY = 'maneuver.remoteSync.scoutingQueue';
 const HEALTH_STORAGE_KEY = 'maneuver.remoteSync.queueHealth';
@@ -88,7 +89,7 @@ export function markRemoteSyncQueueItemsAttempted(itemIds: string[]): void {
 
 export function getRemoteSyncQueueHealth(): QueueHealth {
   const stored = readJsonObject<QueueHealth>(HEALTH_STORAGE_KEY);
-  const pendingWrites = loadRemoteSyncQueue().length;
+  const pendingWrites = loadRemoteSyncQueue().length + loadScoutProfileQueue().length;
 
   if (stored) {
     const state =

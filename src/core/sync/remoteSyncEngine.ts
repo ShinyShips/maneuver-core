@@ -17,6 +17,27 @@ import {
 } from './scoutingEntryDocuments';
 import { loadSyncCursor, saveSyncCursor } from './remoteSyncCursor';
 import { markRemoteSyncDocumentsSynced } from './remoteSyncDocumentStatus';
+import {
+  loadScoutProfileQueueForDataset,
+  markScoutProfileQueueItemsAttempted,
+  removeScoutProfileQueueItems,
+} from './scoutProfileQueue';
+import {
+  createScoutProfileSyncDocumentCandidate,
+  reconcileScoutProfile,
+  type ScoutProfileSyncDocument,
+  type ScoutProfileSyncPayload,
+} from './scoutProfileDocuments';
+import {
+  loadScoutProfileSyncPayload,
+  saveScoutProfileSyncPayload,
+} from '@/core/sync/scoutProfileStore';
+import {
+  isScoutProfileIdentityBound,
+  markScoutProfileIdentityBound,
+  recordScoutNameCollision,
+  ScoutNameCollisionError,
+} from './scoutNameCollision';
 
 export interface RemoteSyncRunResult {
   pushedCount: number;
@@ -37,8 +58,10 @@ export async function syncScoutingEntries(
 
   try {
     await ensureRemoteDeviceJoined(connection, adapter);
-    const pushedCount = await pushQueuedScoutingEntries(connection, adapter);
-    const pullResult = await pullScoutingEntryChanges(connection, adapter);
+    const pushedScoutingEntryCount = await pushQueuedScoutingEntries(connection, adapter);
+    const initialPullResult = await pullRemoteChanges(connection, adapter);
+    const pushedScoutProfileCount = await pushQueuedScoutProfiles(connection, adapter);
+    const finalPullResult = await pullRemoteChanges(connection, adapter);
     const queueHealth = getRemoteSyncQueueHealth();
     setRemoteSyncQueueHealth({
       state: queueHealth.pendingWrites > 0 ? 'healthy' : 'idle',
@@ -47,14 +70,19 @@ export async function syncScoutingEntries(
     });
 
     return {
-      pushedCount,
-      pulledCount: pullResult.pulledCount,
-      cursor: pullResult.cursor,
+      pushedCount: pushedScoutingEntryCount + pushedScoutProfileCount,
+      pulledCount: initialPullResult.pulledCount + finalPullResult.pulledCount,
+      cursor: finalPullResult.cursor,
     };
   } catch (error) {
     setRemoteSyncQueueHealth({
       ...getRemoteSyncQueueHealth(),
-      state: typeof navigator !== 'undefined' && navigator.onLine ? 'error' : 'offline',
+      state:
+        error instanceof ScoutNameCollisionError
+          ? 'blocked'
+          : typeof navigator !== 'undefined' && navigator.onLine
+            ? 'error'
+            : 'offline',
       blockedReason: error instanceof Error ? error.message : 'Remote sync failed.',
     });
     throw error;
@@ -114,7 +142,59 @@ async function pushQueuedScoutingEntries(
   return queueItems.length;
 }
 
-async function pullScoutingEntryChanges(
+async function pushQueuedScoutProfiles(
+  connection: RemoteSyncConnection,
+  adapter: RemoteSyncAdapter
+): Promise<number> {
+  const queueItems = loadScoutProfileQueueForDataset(connection.datasetId);
+
+  if (queueItems.length === 0) {
+    return 0;
+  }
+
+  const queuedProfiles = (
+    await Promise.all(
+      queueItems.map(async item => ({
+        item,
+        payload: await loadScoutProfileSyncPayload(item.scoutName),
+      }))
+    )
+  ).filter(
+    (queued): queued is { item: (typeof queueItems)[number]; payload: ScoutProfileSyncPayload } =>
+      queued.payload !== undefined
+  );
+
+  if (queuedProfiles.length === 0) {
+    removeScoutProfileQueueItems(queueItems.map(item => item.id));
+    return 0;
+  }
+
+  markScoutProfileQueueItemsAttempted(queuedProfiles.map(({ item }) => item.id));
+  const result = await adapter.pushDocuments<ScoutProfileSyncPayload>({
+    datasetId: connection.datasetId,
+    deviceId: connection.deviceId,
+    documents: queuedProfiles.map(({ payload }) =>
+      createScoutProfileSyncDocumentCandidate(payload)
+    ),
+  });
+
+  for (const document of result.committed) {
+    if (document.documentType === 'scout-profile' && !document.tombstone) {
+      await saveScoutProfileSyncPayload(document.payload);
+      markScoutProfileIdentityBound(connection.datasetId, document.documentId);
+    }
+  }
+
+  markRemoteSyncDocumentsSynced(
+    connection.datasetId,
+    queuedProfiles.map(({ item }) => `scout-profile:${item.documentId}`)
+  );
+  removeScoutProfileQueueItems(queuedProfiles.map(({ item }) => item.id));
+
+  return queuedProfiles.length;
+}
+
+async function pullRemoteChanges(
   connection: RemoteSyncConnection,
   adapter: RemoteSyncAdapter
 ): Promise<{ pulledCount: number; cursor: number }> {
@@ -123,14 +203,14 @@ async function pullScoutingEntryChanges(
   let hasMore = true;
 
   while (hasMore) {
-    const result = await adapter.pullChanges<ScoutingEntryBase<Record<string, unknown>>>({
+    const result = await adapter.pullChanges<unknown>({
       datasetId: connection.datasetId,
       afterCursor: cursor,
       pageSize: 100,
     });
 
     for (const change of result.changes) {
-      const applied = await applyRemoteScoutingEntryChange(connection, change);
+      const applied = await applyRemoteChange(connection, change);
       pulledCount += applied ? 1 : 0;
       cursor = Math.max(cursor, change.cursor);
     }
@@ -140,6 +220,27 @@ async function pullScoutingEntryChanges(
 
   saveSyncCursor(connection.datasetId, cursor);
   return { pulledCount, cursor };
+}
+
+async function applyRemoteChange(
+  connection: RemoteSyncConnection,
+  change: CanonicalSyncChange<unknown>
+): Promise<boolean> {
+  if (change.documentType === 'match-scouting-entry') {
+    return applyRemoteScoutingEntryChange(
+      connection,
+      change as CanonicalSyncChange<ScoutingEntryBase<Record<string, unknown>>>
+    );
+  }
+
+  if (change.documentType === 'scout-profile') {
+    return applyRemoteScoutProfileChange(
+      connection,
+      change as CanonicalSyncChange<ScoutProfileSyncPayload>
+    );
+  }
+
+  return false;
 }
 
 async function applyRemoteScoutingEntryChange(
@@ -178,6 +279,55 @@ async function applyRemoteScoutingEntryChange(
   }
 
   return false;
+}
+
+async function applyRemoteScoutProfileChange(
+  connection: RemoteSyncConnection,
+  change: CanonicalSyncChange<ScoutProfileSyncPayload>
+): Promise<boolean> {
+  const document = change.document as ScoutProfileSyncDocument;
+
+  if (document.updatedByDeviceId === connection.deviceId || document.tombstone) {
+    return false;
+  }
+
+  const localProfile = await loadScoutProfileSyncPayload(document.payload.scout.name);
+
+  if (
+    localProfile &&
+    !isScoutProfileIdentityBound(connection.datasetId, document.documentId)
+  ) {
+    const collision = recordScoutNameCollision({
+      datasetId: connection.datasetId,
+      documentId: document.documentId,
+      localName: localProfile.scout.name,
+      remoteName: document.payload.scout.name,
+    });
+    throw new ScoutNameCollisionError(collision);
+  }
+
+  const hasQueuedLocalProfile = loadScoutProfileQueueForDataset(connection.datasetId).some(
+    item => item.documentId === document.documentId
+  );
+
+  if (localProfile && hasQueuedLocalProfile) {
+    const reconciliation = reconcileScoutProfile(document.payload, localProfile);
+
+    if (reconciliation.status === 'manual-conflict') {
+      throw new Error(reconciliation.conflict.message);
+    }
+
+    await saveScoutProfileSyncPayload(reconciliation.payload);
+    markScoutProfileIdentityBound(connection.datasetId, document.documentId);
+    return true;
+  }
+
+  await saveScoutProfileSyncPayload(document.payload);
+  markScoutProfileIdentityBound(connection.datasetId, document.documentId);
+  markRemoteSyncDocumentsSynced(connection.datasetId, [
+    `scout-profile:${document.documentId}`,
+  ]);
+  return true;
 }
 
 function createAdapterForConnection(connection: RemoteSyncConnection): RemoteSyncAdapter {
