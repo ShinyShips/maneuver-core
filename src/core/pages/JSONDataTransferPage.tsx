@@ -1,17 +1,40 @@
-
-import { useState } from "react";
-import { Button } from "@/core/components/ui/button";
-import JSONUploader from "@/core/components/data-transfer/JSONUploader";
-import { convertArrayOfArraysToCSV } from "@/core/lib/utils";
-import { loadScoutingData } from "@/core/lib/scoutingDataUtils";
-import { loadPitScoutingData, exportPitScoutingToCSV, downloadPitScoutingImagesOnly } from "@/core/lib/pitScoutingUtils";
-import { gamificationDB as gameDB } from "@/game-template/gamification";
-import { csvExcludedFields, pitCsvExcludedFields } from "@/game-template/transformation";
-import { Separator } from "@/core/components/ui/separator";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/core/components/ui/select";
-import { createMatchSchedulePayload } from "@/core/lib/matchScheduleTransfer";
-import { downloadTextFile } from "@/core/lib/downloadUtils";
-import { Loader2 } from "lucide-react";
+import { useState } from 'react';
+import { Button } from '@/core/components/ui/button';
+import JSONUploader from '@/core/components/data-transfer/JSONUploader';
+import {
+  ScoutingExportScopePanel,
+  type ScoutingExportSource,
+} from '@/core/components/data-transfer/ScoutingExportScopePanel';
+import { convertArrayOfArraysToCSV } from '@/core/lib/utils';
+import { loadScoutingData } from '@/core/lib/scoutingDataUtils';
+import {
+  loadPitScoutingData,
+  exportPitScoutingToCSV,
+  downloadPitScoutingImagesOnly,
+} from '@/core/lib/pitScoutingUtils';
+import { gamificationDB as gameDB } from '@/game-template/gamification';
+import { csvExcludedFields, pitCsvExcludedFields } from '@/game-template/transformation';
+import { Separator } from '@/core/components/ui/separator';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/core/components/ui/select';
+import { createMatchSchedulePayload } from '@/core/lib/matchScheduleTransfer';
+import { downloadTextFile } from '@/core/lib/downloadUtils';
+import { Loader2 } from 'lucide-react';
+import {
+  acknowledgeLocalScoutingExportWarning,
+  createScoutingDataExport,
+  getScopedOnlineExportDefault,
+  isLocalScoutingExportWarningAcknowledged,
+  loadRemoteSyncConnection,
+  loadRemoteSyncQueue,
+  SCOUTING_EXPORT_SCOPE_LABELS,
+  type ScoutingDataExportRequest,
+} from '@/core/sync';
 
 const getSortableMatchNumber = (matchNumber: unknown, matchKey: unknown): number => {
   if (typeof matchNumber === 'number' && Number.isFinite(matchNumber)) return matchNumber;
@@ -20,33 +43,46 @@ const getSortableMatchNumber = (matchNumber: unknown, matchKey: unknown): number
   if (Number.isFinite(fromMatchNumber)) return fromMatchNumber;
 
   const key = String(matchKey ?? '');
-  const keyPart = key.includes('_') ? (key.split('_')[1] || key) : key;
+  const keyPart = key.includes('_') ? key.split('_')[1] || key : key;
   const parsedFromKey = Number.parseInt(keyPart.replace(/\D/g, ''), 10);
   return Number.isFinite(parsedFromKey) ? parsedFromKey : Number.MAX_SAFE_INTEGER;
 };
 
 const waitForUiPaint = async (): Promise<void> => {
-  await new Promise<void>((resolve) => {
+  await new Promise<void>(resolve => {
     window.setTimeout(resolve, 0);
   });
 };
 
-
-
 const JSONDataTransferPage = () => {
   const [mode, setMode] = useState<'select' | 'upload'>('select');
-  const [dataType, setDataType] = useState<'scouting' | 'scoutProfiles' | 'pitScouting' | 'pitScoutingImagesOnly' | 'matchSchedule'>('scouting');
+  const [dataType, setDataType] = useState<
+    'scouting' | 'scoutProfiles' | 'pitScouting' | 'pitScoutingImagesOnly' | 'matchSchedule'
+  >('scouting');
   const [activeDownload, setActiveDownload] = useState<'json' | 'csv' | null>(null);
+  const remoteConnection = loadRemoteSyncConnection();
+  const [scoutingExportSource, setScoutingExportSource] =
+    useState<ScoutingExportSource>('device-local');
+  const [scopedEventKeysText, setScopedEventKeysText] = useState(() =>
+    (getScopedOnlineExportDefault(remoteConnection).eventKeys ?? []).join(', ')
+  );
+  const [localWarningConfirmationRequired, setLocalWarningConfirmationRequired] = useState(false);
+  const [pendingLocalExportFormat, setPendingLocalExportFormat] = useState<'json' | 'csv' | null>(
+    null
+  );
+  const [remoteExportFailure, setRemoteExportFailure] = useState<string | null>(null);
 
   if (mode === 'upload') {
-    return (
-      <JSONUploader
-        onBack={() => setMode('select')}
-      />
-    );
+    return <JSONUploader onBack={() => setMode('select')} />;
   }
 
   const handleDownloadCSV = async () => {
+    if (dataType === 'scouting' && !isLocalScoutingExportWarningAcknowledged()) {
+      setPendingLocalExportFormat('csv');
+      setLocalWarningConfirmationRequired(true);
+      return;
+    }
+
     setActiveDownload('csv');
 
     try {
@@ -73,12 +109,21 @@ const JSONDataTransferPage = () => {
           });
 
           if (scoutingEntries.length === 0) {
-            alert("No scouting data found.");
+            alert('No scouting data found.');
             return;
           }
 
           // Build dynamic headers from actual data structure
-          const baseFields = ['id', 'scoutName', 'teamNumber', 'matchNumber', 'eventKey', 'matchKey', 'allianceColor', 'timestamp'];
+          const baseFields = [
+            'id',
+            'scoutName',
+            'teamNumber',
+            'matchNumber',
+            'eventKey',
+            'matchKey',
+            'allianceColor',
+            'timestamp',
+          ];
           const autoFieldsSet = new Set<string>();
           const teleopFieldsSet = new Set<string>();
           const endgameFieldsSet = new Set<string>();
@@ -154,7 +199,7 @@ const JSONDataTransferPage = () => {
             // Process base fields
             for (const field of baseFields) {
               const value = entryAsRecord[field];
-              row.push(value !== undefined ? value as string | number : '');
+              row.push(value !== undefined ? (value as string | number) : '');
             }
 
             // Process gameData fields with flattening
@@ -182,7 +227,7 @@ const JSONDataTransferPage = () => {
 
             // Add comments field at the end
             const comments = entryAsRecord['comments'];
-            row.push(comments !== undefined ? comments as string | number : '');
+            row.push(comments !== undefined ? (comments as string | number) : '');
 
             dataArrays.push(row);
           }
@@ -196,14 +241,16 @@ const JSONDataTransferPage = () => {
         case 'pitScouting': {
           csv = await exportPitScoutingToCSV(pitCsvExcludedFields);
           if (!csv || csv.split('\n').length <= 1) {
-            alert("No pit scouting data found.");
+            alert('No pit scouting data found.');
             return;
           }
           filename = `ManeuverPitScoutingData-${new Date().toLocaleTimeString()}-local.csv`;
           break;
         }
         case 'pitScoutingImagesOnly': {
-          alert("CSV export not available for images-only data. Use JSON or Wifi download instead.");
+          alert(
+            'CSV export not available for images-only data. Use JSON or Wifi download instead.'
+          );
           return;
         }
         case 'matchSchedule': {
@@ -213,12 +260,12 @@ const JSONDataTransferPage = () => {
           const payload = createMatchSchedulePayload(matches, eventKey);
 
           if (!payload) {
-            alert("No match schedule data found.");
+            alert('No match schedule data found.');
             return;
           }
 
           const header: (string | number)[] = ['matchNum', 'redAlliance', 'blueAlliance'];
-          const rows: (string | number)[][] = payload.matches.map((match) => {
+          const rows: (string | number)[][] = payload.matches.map(match => {
             const matchNum = match.matchNum;
             const redAlliance = match.redAlliance.join(',');
             const blueAlliance = match.blueAlliance.join(',');
@@ -236,24 +283,38 @@ const JSONDataTransferPage = () => {
           const predictionsData = await gameDB.predictions.toArray();
 
           if (scoutsData.length === 0 && predictionsData.length === 0) {
-            alert("No scout profiles data found.");
+            alert('No scout profiles data found.');
             return;
           }
 
           // Create CSV for scout profiles
-          const scoutHeaders = ['Name', 'Stakes', 'Stakes From Predictions', 'Total Predictions', 'Correct Predictions', 'Accuracy %', 'Current Streak', 'Longest Streak', 'Detailed Comments', 'Created At', 'Last Updated'];
+          const scoutHeaders = [
+            'Name',
+            'Stakes',
+            'Stakes From Predictions',
+            'Total Predictions',
+            'Correct Predictions',
+            'Accuracy %',
+            'Current Streak',
+            'Longest Streak',
+            'Detailed Comments',
+            'Created At',
+            'Last Updated',
+          ];
           const scoutRows = scoutsData.map(scout => [
             scout.name,
             scout.stakes,
             scout.stakesFromPredictions,
             scout.totalPredictions,
             scout.correctPredictions,
-            scout.totalPredictions > 0 ? Math.round((scout.correctPredictions / scout.totalPredictions) * 100) : 0,
+            scout.totalPredictions > 0
+              ? Math.round((scout.correctPredictions / scout.totalPredictions) * 100)
+              : 0,
             scout.currentStreak,
             scout.longestStreak,
             typeof scout.detailedCommentsCount === 'number' ? scout.detailedCommentsCount : 0,
             new Date(scout.createdAt).toLocaleDateString(),
-            new Date(scout.lastUpdated).toLocaleDateString()
+            new Date(scout.lastUpdated).toLocaleDateString(),
           ]);
 
           const scoutCsvData = [scoutHeaders, ...scoutRows];
@@ -262,21 +323,36 @@ const JSONDataTransferPage = () => {
           break;
         }
         default:
-          alert("Unknown data type selected.");
+          alert('Unknown data type selected.');
           return;
       }
 
-      downloadTextFile(filename, csv, "text/csv;charset=utf-8");
+      downloadTextFile(filename, csv, 'text/csv;charset=utf-8');
     } catch (error) {
-      console.error("Failed to export data as CSV:", error);
-      alert("Failed to export data as CSV.");
+      console.error('Failed to export data as CSV:', error);
+      alert('Failed to export data as CSV.');
     } finally {
       setActiveDownload(null);
     }
   };
 
-  const handleDownloadJSON = async () => {
+  const handleDownloadJSON = async (sourceOverride?: ScoutingExportSource) => {
+    const selectedScoutingSource = sourceOverride ?? scoutingExportSource;
+
+    if (
+      dataType === 'scouting' &&
+      selectedScoutingSource === 'device-local' &&
+      !isLocalScoutingExportWarningAcknowledged()
+    ) {
+      setPendingLocalExportFormat('json');
+      setLocalWarningConfirmationRequired(true);
+      return;
+    }
+
     setActiveDownload('json');
+    if (dataType === 'scouting' && selectedScoutingSource !== 'device-local') {
+      setRemoteExportFailure(null);
+    }
 
     try {
       await waitForUiPaint();
@@ -286,22 +362,32 @@ const JSONDataTransferPage = () => {
 
       switch (dataType) {
         case 'scouting': {
-          const scoutingEntries = await loadScoutingData();
+          const request: ScoutingDataExportRequest =
+            selectedScoutingSource === 'scoped-online'
+              ? {
+                  source: 'scoped-online',
+                  eventKeys: scopedEventKeysText
+                    .split(',')
+                    .map(eventKey => eventKey.trim())
+                    .filter(Boolean),
+                }
+              : { source: selectedScoutingSource };
+          const scoutingExport = await createScoutingDataExport(request);
 
-          if (scoutingEntries.length === 0) {
-            alert("No scouting data found.");
+          if (scoutingExport.entries.length === 0) {
+            alert('No scouting data found.');
             return;
           }
 
-          dataToExport = { entries: scoutingEntries };
-          filename = `ManeuverScoutingData-${new Date().toLocaleTimeString()}.json`;
+          dataToExport = scoutingExport;
+          filename = `ManeuverScoutingData-${scoutingExport.scope.kind}-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
           break;
         }
         case 'pitScouting': {
           const pitData = await loadPitScoutingData();
 
           if (pitData.entries.length === 0) {
-            alert("No pit scouting data found.");
+            alert('No pit scouting data found.');
             return;
           }
 
@@ -315,7 +401,7 @@ const JSONDataTransferPage = () => {
             return;
           } catch (error) {
             console.error('Error downloading pit scouting images:', error);
-            alert("Failed to download pit scouting images.");
+            alert('Failed to download pit scouting images.');
             return;
           }
         }
@@ -326,7 +412,7 @@ const JSONDataTransferPage = () => {
           const payload = createMatchSchedulePayload(matches, eventKey);
 
           if (!payload) {
-            alert("No match schedule data found.");
+            alert('No match schedule data found.');
             return;
           }
 
@@ -339,7 +425,7 @@ const JSONDataTransferPage = () => {
           const predictionsData = await gameDB.predictions.toArray();
 
           if (scoutsData.length === 0 && predictionsData.length === 0) {
-            alert("No scout profiles data found.");
+            alert('No scout profiles data found.');
             return;
           }
 
@@ -347,27 +433,53 @@ const JSONDataTransferPage = () => {
             scouts: scoutsData,
             predictions: predictionsData,
             exportedAt: new Date().toISOString(),
-            version: "1.0"
+            version: '1.0',
           };
           filename = `ManeuverScoutProfiles-${new Date().toLocaleTimeString()}.json`;
           break;
         }
         default:
-          alert("Unknown data type selected.");
+          alert('Unknown data type selected.');
           return;
       }
 
       downloadTextFile(
         filename,
         JSON.stringify(dataToExport, null, 2),
-        "application/json;charset=utf-8"
+        'application/json;charset=utf-8'
       );
     } catch (error) {
-      console.error("Failed to export data as JSON:", error);
-      alert("Failed to export data as JSON.");
+      console.error('Failed to export data as JSON:', error);
+      if (dataType === 'scouting' && selectedScoutingSource !== 'device-local') {
+        setRemoteExportFailure(
+          error instanceof Error ? error.message : 'The Team dataset could not be reached.'
+        );
+      } else {
+        alert('Failed to export data as JSON.');
+      }
     } finally {
       setActiveDownload(null);
     }
+  };
+
+  const handleConfirmLocalExport = () => {
+    const format = pendingLocalExportFormat ?? 'json';
+    acknowledgeLocalScoutingExportWarning();
+    setLocalWarningConfirmationRequired(false);
+    setPendingLocalExportFormat(null);
+
+    if (format === 'csv') {
+      void handleDownloadCSV();
+    } else {
+      void handleDownloadJSON('device-local');
+    }
+  };
+
+  const handleUseLocalFallback = () => {
+    setScoutingExportSource('device-local');
+    setRemoteExportFailure(null);
+    setPendingLocalExportFormat('json');
+    void handleDownloadJSON('device-local');
   };
 
   return (
@@ -375,14 +487,24 @@ const JSONDataTransferPage = () => {
       <div className="flex flex-col items-start gap-4 max-w-md w-full">
         <h1 className="text-2xl font-bold">JSON Data Transfer</h1>
         <p className="text-muted-foreground">
-          Export your data as CSV for analysis, or upload JSON files to overwrite your local data storage. Choose the type of data you want to export below.
+          Export your data as CSV for analysis, or upload JSON files to overwrite your local data
+          storage. Choose the type of data you want to export below.
         </p>
-
 
         <div className="flex flex-col gap-4 w-full">
           <div className="flex flex-col gap-2">
             <label className="text-sm font-medium">Data Type to Export:</label>
-            <Select value={dataType} onValueChange={(value: 'scouting' | 'scoutProfiles' | 'pitScouting' | 'pitScoutingImagesOnly' | 'matchSchedule') => setDataType(value)}>
+            <Select
+              value={dataType}
+              onValueChange={(
+                value:
+                  | 'scouting'
+                  | 'scoutProfiles'
+                  | 'pitScouting'
+                  | 'pitScoutingImagesOnly'
+                  | 'matchSchedule'
+              ) => setDataType(value)}
+            >
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="Select data type" />
               </SelectTrigger>
@@ -396,8 +518,26 @@ const JSONDataTransferPage = () => {
             </Select>
           </div>
 
+          {dataType === 'scouting' && (
+            <ScoutingExportScopePanel
+              connected={remoteConnection !== null}
+              source={scoutingExportSource}
+              eventKeysText={scopedEventKeysText}
+              pendingUnsyncedChanges={loadRemoteSyncQueue().length}
+              localWarningConfirmationRequired={localWarningConfirmationRequired}
+              remoteFailure={remoteExportFailure}
+              onSourceChange={source => {
+                setScoutingExportSource(source);
+                setRemoteExportFailure(null);
+              }}
+              onEventKeysTextChange={setScopedEventKeysText}
+              onConfirmLocalExport={handleConfirmLocalExport}
+              onUseLocalFallback={handleUseLocalFallback}
+            />
+          )}
+
           <Button
-            onClick={handleDownloadJSON}
+            onClick={() => void handleDownloadJSON()}
             disabled={activeDownload !== null}
             className="w-full h-16 text-xl"
           >
@@ -406,7 +546,23 @@ const JSONDataTransferPage = () => {
                 <Loader2 className="h-5 w-5 animate-spin" />
                 <span>Preparing JSON Download...</span>
               </span>
-            ) : `Download ${dataType === 'scouting' ? 'Scouting Data' : dataType === 'pitScouting' ? 'Pit Scouting Data' : dataType === 'pitScoutingImagesOnly' ? 'Pit Scouting Images' : dataType === 'matchSchedule' ? 'Match Schedule' : 'Scout Profiles'} as JSON`}
+            ) : (
+              `Download ${
+                dataType === 'scouting'
+                  ? scoutingExportSource === 'device-local'
+                    ? SCOUTING_EXPORT_SCOPE_LABELS['device-local'].toLowerCase()
+                    : scoutingExportSource === 'scoped-online'
+                      ? SCOUTING_EXPORT_SCOPE_LABELS['scoped-online'].toLowerCase()
+                      : SCOUTING_EXPORT_SCOPE_LABELS['full-online'].toLowerCase()
+                  : dataType === 'pitScouting'
+                    ? 'Pit Scouting Data'
+                    : dataType === 'pitScoutingImagesOnly'
+                      ? 'Pit Scouting Images'
+                      : dataType === 'matchSchedule'
+                        ? 'Match Schedule'
+                        : 'Scout Profiles'
+              } as JSON`
+            )}
           </Button>
 
           <div className="flex items-center gap-4">
@@ -422,17 +578,16 @@ const JSONDataTransferPage = () => {
               disabled={dataType === 'pitScoutingImagesOnly' || activeDownload !== null}
               className="w-full h-16 text-xl"
             >
-              {activeDownload === 'csv'
-                ? (
-                  <span className="flex items-center justify-center gap-2">
-                    <Loader2 className="h-5 w-5 animate-spin" />
-                    <span>Preparing CSV Download...</span>
-                  </span>
-                )
-                : dataType === 'pitScoutingImagesOnly'
-                ? 'Images Cannot Be Downloaded as CSV'
-                : `Download ${dataType === 'scouting' ? 'Scouting Data' : dataType === 'pitScouting' ? 'Pit Scouting Data' : dataType === 'matchSchedule' ? 'Match Schedule' : 'Scout Profiles'} as CSV`
-              }
+              {activeDownload === 'csv' ? (
+                <span className="flex items-center justify-center gap-2">
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                  <span>Preparing CSV Download...</span>
+                </span>
+              ) : dataType === 'pitScoutingImagesOnly' ? (
+                'Images Cannot Be Downloaded as CSV'
+              ) : (
+                `Download ${dataType === 'scouting' ? SCOUTING_EXPORT_SCOPE_LABELS['device-local'].toLowerCase() : dataType === 'pitScouting' ? 'Pit Scouting Data' : dataType === 'matchSchedule' ? 'Match Schedule' : 'Scout Profiles'} as CSV`
+              )}
             </Button>
             {activeDownload && (
               <div className="mt-1 flex items-center justify-center gap-2 text-xs text-muted-foreground">
@@ -473,7 +628,10 @@ const JSONDataTransferPage = () => {
           <p>• Scouting Data: Match performance data</p>
           <p>• Scout Profiles: User achievements and predictions</p>
           <p>• Pit Scouting: Team technical specifications and capabilities</p>
-          <p>• Pit Scouting Images Only: Robot photos for merging with existing data (requires text data first)</p>
+          <p>
+            • Pit Scouting Images Only: Robot photos for merging with existing data (requires text
+            data first)
+          </p>
           <p>• Match Schedule: Qualification match lineups loaded from TBA</p>
         </div>
       </div>

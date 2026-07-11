@@ -68,6 +68,12 @@ export {
 } from './scoutProfileDocuments';
 export { readScopedOnlineScoutingEntries } from './scopedOnlineExportRead';
 export {
+  acknowledgeLocalScoutingExportWarning,
+  createScoutingDataExport,
+  isLocalScoutingExportWarningAcknowledged,
+  SCOUTING_EXPORT_SCOPE_LABELS,
+} from './scoutingDataExport';
+export {
   createEventSyncScope,
   createScopedOnlineExportSelection,
   eventSyncScopeIncludes,
@@ -100,6 +106,11 @@ export type {
   ScoutProfileSyncPayload,
 } from './scoutProfileDocuments';
 export type { ScopedOnlineScoutingEntriesRead } from './scopedOnlineExportRead';
+export type {
+  HumanReadableScoutingDataExport,
+  ScoutingDataExportOptions,
+  ScoutingDataExportRequest,
+} from './scoutingDataExport';
 export type {
   EventSyncScope,
   EventSyncScopeChangeOptions,

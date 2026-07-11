@@ -1,4 +1,3 @@
-import { createFirebaseRemoteSyncAdapter } from './firebase';
 import type { CanonicalSyncChange, JoinedDatasetOverview, RemoteSyncAdapter } from './types';
 import { db, deleteScoutingEntry, saveScoutingEntry } from '@/core/db/database';
 import type { ScoutingEntryBase } from '@/core/types/scouting-entry';
@@ -17,6 +16,7 @@ import {
 } from './scoutingEntryDocuments';
 import { loadSyncCursor, saveSyncCursor } from './remoteSyncCursor';
 import { markRemoteSyncDocumentsSynced } from './remoteSyncDocumentStatus';
+import { createRemoteSyncAdapterForConnection } from './remoteSyncAdapterFactory';
 import {
   loadScoutProfileQueueForDataset,
   markScoutProfileQueueItemsAttempted,
@@ -54,7 +54,7 @@ export async function readJoinedDatasetOverview(
     throw new Error('Join a Team dataset before reading dataset health.');
   }
 
-  const adapter = adapterOverride ?? createAdapterForConnection(connection);
+  const adapter = adapterOverride ?? createRemoteSyncAdapterForConnection(connection);
   return adapter.getJoinedDatasetOverview({
     datasetId: connection.datasetId,
     deviceId: connection.deviceId,
@@ -70,7 +70,7 @@ export async function syncScoutingEntries(
     throw new Error('Join a Team dataset before syncing scouting entries.');
   }
 
-  const adapter = adapterOverride ?? createAdapterForConnection(connection);
+  const adapter = adapterOverride ?? createRemoteSyncAdapterForConnection(connection);
 
   try {
     await ensureRemoteDeviceJoined(connection, adapter);
@@ -309,10 +309,7 @@ async function applyRemoteScoutProfileChange(
 
   const localProfile = await loadScoutProfileSyncPayload(document.payload.scout.name);
 
-  if (
-    localProfile &&
-    !isScoutProfileIdentityBound(connection.datasetId, document.documentId)
-  ) {
+  if (localProfile && !isScoutProfileIdentityBound(connection.datasetId, document.documentId)) {
     const collision = recordScoutNameCollision({
       datasetId: connection.datasetId,
       documentId: document.documentId,
@@ -340,15 +337,6 @@ async function applyRemoteScoutProfileChange(
 
   await saveScoutProfileSyncPayload(document.payload);
   markScoutProfileIdentityBound(connection.datasetId, document.documentId);
-  markRemoteSyncDocumentsSynced(connection.datasetId, [
-    `scout-profile:${document.documentId}`,
-  ]);
+  markRemoteSyncDocumentsSynced(connection.datasetId, [`scout-profile:${document.documentId}`]);
   return true;
-}
-
-function createAdapterForConnection(connection: RemoteSyncConnection): RemoteSyncAdapter {
-  return createFirebaseRemoteSyncAdapter({
-    firebase: connection.firebase,
-    firestoreEmulator: connection.firestoreEmulator,
-  });
 }

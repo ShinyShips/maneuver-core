@@ -183,6 +183,7 @@ import {
   createCanonicalDocumentIdentity,
   createInMemoryRemoteSyncAdapter,
   createRemoteSyncConnection,
+  createScoutingDataExport,
   createScopedOnlineExportSelection,
   getEventSyncScope,
   getScopedOnlineExportDefault,
@@ -214,6 +215,7 @@ import {
 import type { DatasetJoinArtifact } from '@/core/sync';
 import type { ScoutingEntryBase } from '@/core/types/scouting-entry';
 import { JoinedDatasetOverviewPanel } from '@/core/components/remote-sync/JoinedDatasetOverviewPanel';
+import { ScoutingExportScopePanel } from '@/core/components/data-transfer/ScoutingExportScopePanel';
 import {
   __getRemoteSyncContractScoutProfile,
   __resetRemoteSyncContractScoutProfiles,
@@ -1130,6 +1132,116 @@ async function runContract(): Promise<void> {
     7,
     'confirming join-existing allows durable profile reconciliation to continue'
   );
+
+  attachClient('local-export-client', artifact, ['2026miket']);
+  await saveScoutingEntry(
+    scoutingEntry({
+      id: '2026miket::qm21::3314::red',
+      matchKey: 'qm21',
+      matchNumber: 21,
+      timestamp: 21_000,
+    })
+  );
+  const localExport = await createScoutingDataExport({ source: 'device-local' });
+  assert.equal(localExport.scope.kind, 'device-local', 'local export identifies its source');
+  assert.equal(
+    localExport.scope.label,
+    "Current device's local replica",
+    'local export uses explicit replica wording'
+  );
+  assert.equal(
+    localExport.scope.completeForRequestedScope,
+    false,
+    'local export never claims replica completeness'
+  );
+  assert.equal(
+    localExport.warnings.unsyncedLocalChanges,
+    1,
+    'local export labels known queued scouting changes'
+  );
+  assert.equal(
+    localExport.entries.some(entry => entry.id === '2026miket::qm21::3314::red'),
+    true,
+    'local export reads the current device replica without service access'
+  );
+
+  const scopedRemoteExport = await createScoutingDataExport(
+    { source: 'scoped-online', eventKeys: ['2026miket'] },
+    { adapter }
+  );
+  assert.deepEqual(
+    scopedRemoteExport.scope,
+    {
+      kind: 'scoped-online',
+      label: 'Selected events from Team dataset',
+      completeForRequestedScope: true,
+      eventKeys: ['2026miket'],
+      allEvents: false,
+    },
+    'scoped online export labels the selected remote subset'
+  );
+  assert.equal(
+    scopedRemoteExport.entries.some(entry => entry.eventKey.toLowerCase() === '2026oncmp'),
+    false,
+    'scoped online export excludes remote events outside its independent selection'
+  );
+  const allEventsScopedExport = await createScoutingDataExport(
+    { source: 'scoped-online', eventKeys: [] },
+    { adapter }
+  );
+  assert.equal(
+    allEventsScopedExport.scope.kind === 'scoped-online' && allEventsScopedExport.scope.allEvents,
+    true,
+    'an all-events Event sync scope remains a valid scoped-export default'
+  );
+
+  const fullRemoteExport = await createScoutingDataExport(
+    { source: 'full-online' },
+    { adapter }
+  );
+  assert.deepEqual(
+    fullRemoteExport.scope,
+    {
+      kind: 'full-online',
+      label: 'Full Team dataset',
+      completeForRequestedScope: true,
+    },
+    'full online export explicitly labels dataset-wide output'
+  );
+  assert.equal(
+    fullRemoteExport.entries.some(entry => entry.eventKey.toLowerCase() === '2026oncmp'),
+    true,
+    'full online export includes scouting entries from every remote event'
+  );
+  assert.deepEqual(
+    loadRemoteSyncConnection()?.eventSyncScope.eventKeys,
+    ['2026miket'],
+    'remote export choices leave the device Event sync scope unchanged'
+  );
+
+  const exportScopeMarkup = renderToStaticMarkup(
+    createElement(ScoutingExportScopePanel, {
+      connected: true,
+      source: 'scoped-online',
+      eventKeysText: '2026miket',
+      pendingUnsyncedChanges: 2,
+      localWarningConfirmationRequired: true,
+      remoteFailure: 'Service unavailable',
+      onSourceChange: () => undefined,
+      onEventKeysTextChange: () => undefined,
+      onConfirmLocalExport: () => undefined,
+      onUseLocalFallback: () => undefined,
+    })
+  );
+  assert.match(exportScopeMarkup, /Current device&#x27;s local replica/);
+  assert.match(exportScopeMarkup, /Selected events from Team dataset/);
+  assert.match(exportScopeMarkup, /Full Team dataset/);
+  assert.match(exportScopeMarkup, /leave blank when the current scope is all events/);
+  assert.match(exportScopeMarkup, /may be incomplete/);
+  assert.match(exportScopeMarkup, /2 queued unsynced scouting changes/);
+  assert.match(exportScopeMarkup, /Continue with local export/);
+  assert.match(exportScopeMarkup, /Scoped online export failed/);
+  assert.match(exportScopeMarkup, /Export current device&#x27;s local replica instead/);
 }
 
 await runContract();
