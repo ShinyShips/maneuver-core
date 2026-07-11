@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   CheckCircle2,
   Clipboard,
@@ -25,6 +25,7 @@ import { Input } from '@/core/components/ui/input';
 import { Label } from '@/core/components/ui/label';
 import { Separator } from '@/core/components/ui/separator';
 import { Textarea } from '@/core/components/ui/textarea';
+import { JoinedDatasetOverviewPanel } from '@/core/components/remote-sync/JoinedDatasetOverviewPanel';
 import { useRemoteSyncConnection } from '@/core/hooks/useRemoteSyncConnection';
 import { useRemoteSyncQueueHealth } from '@/core/hooks/useRemoteSyncQueueHealth';
 import {
@@ -33,13 +34,17 @@ import {
   type RemoteSyncConnection,
   type RemoteSyncDeviceDefaults,
 } from '@/core/sync/remoteSyncConnection';
-import { syncScoutingEntries } from '@/core/sync/remoteSyncEngine';
+import {
+  readJoinedDatasetOverview,
+  syncScoutingEntries,
+} from '@/core/sync/remoteSyncEngine';
 import {
   loadPendingScoutNameCollisions,
   resolveScoutNameCollision,
   updateEventSyncScope,
   type DatasetJoinArtifact,
   type EventSyncScopeChangeResult,
+  type JoinedDatasetOverview,
 } from '@/core/sync';
 
 export default function RemoteSyncPage() {
@@ -60,6 +65,34 @@ export default function RemoteSyncPage() {
   const [joinScopeChange, setJoinScopeChange] = useState<EventSyncScopeChangeResult | null>(null);
   const [joinError, setJoinError] = useState<string | null>(null);
   const [isAttaching, setIsAttaching] = useState(false);
+  const [datasetOverview, setDatasetOverview] = useState<JoinedDatasetOverview | null>(null);
+  const [overviewError, setOverviewError] = useState<string | null>(null);
+  const [isOverviewLoading, setIsOverviewLoading] = useState(false);
+
+  const refreshDatasetOverview = useCallback(async () => {
+    if (!connection) {
+      setDatasetOverview(null);
+      setOverviewError(null);
+      return;
+    }
+
+    setIsOverviewLoading(true);
+    setOverviewError(null);
+
+    try {
+      setDatasetOverview(await readJoinedDatasetOverview());
+    } catch (error) {
+      setOverviewError(
+        error instanceof Error ? error.message : 'Dataset health could not be loaded.'
+      );
+    } finally {
+      setIsOverviewLoading(false);
+    }
+  }, [connection]);
+
+  useEffect(() => {
+    void refreshDatasetOverview();
+  }, [refreshDatasetOverview]);
 
   const artifactSummary = useMemo(() => {
     if (!artifact) {
@@ -150,6 +183,7 @@ export default function RemoteSyncPage() {
       setSyncStatus(
         `Pushed ${result.pushedCount} queued change${result.pushedCount === 1 ? '' : 's'} and applied ${result.pulledCount} remote change${result.pulledCount === 1 ? '' : 's'}.`
       );
+      await refreshDatasetOverview();
     } catch (error) {
       setSyncError(error instanceof Error ? error.message : 'Remote sync failed.');
     } finally {
@@ -180,15 +214,30 @@ export default function RemoteSyncPage() {
         </header>
 
         {connection ? (
-          <JoinedDatasetPanel
-            connection={connection}
-            pendingWrites={queueHealth.pendingWrites}
-            queueState={queueHealth.state}
-            isSyncing={isSyncing}
-            onSyncNow={() => void handleSyncNow()}
-            onCollisionResolved={() => void handleSyncNow()}
-            onDisconnect={clearConnection}
-          />
+          <>
+            <JoinedDatasetPanel
+              connection={connection}
+              pendingWrites={queueHealth.pendingWrites}
+              queueState={queueHealth.state}
+              isSyncing={isSyncing}
+              onSyncNow={() => void handleSyncNow()}
+              onCollisionResolved={() => void handleSyncNow()}
+              onDisconnect={clearConnection}
+            />
+            {isOverviewLoading && !datasetOverview && (
+              <Alert>
+                <AlertTitle>Loading dataset health</AlertTitle>
+                <AlertDescription>Reading the shared Team dataset overview.</AlertDescription>
+              </Alert>
+            )}
+            {overviewError && (
+              <Alert variant="destructive">
+                <AlertTitle>Dataset health unavailable</AlertTitle>
+                <AlertDescription>{overviewError}</AlertDescription>
+              </Alert>
+            )}
+            {datasetOverview && <JoinedDatasetOverviewPanel overview={datasetOverview} />}
+          </>
         ) : (
           <Alert>
             <ShieldCheck />

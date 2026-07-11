@@ -6,6 +6,9 @@ import type {
   CreateJoinCredentialInput,
   DatasetCleanupCredential,
   DatasetHealth,
+  DatasetEventRecord,
+  GetJoinedDatasetOverviewInput,
+  JoinedDatasetOverview,
   DatasetJoinCredential,
   JoinDatasetInput,
   JoinedDeviceIdentity,
@@ -15,12 +18,19 @@ import type {
   PushDocumentsResult,
   RemoteSyncAdapter,
   RotateJoinCredentialInput,
+  SharedRestoreEvent,
   TeamDataset,
 } from '../types';
 import {
   CanonicalDocumentManualConflictError,
   reconcileCanonicalDocumentCandidate,
 } from '../canonicalDocumentReconciliation';
+import {
+  createSharedRestoreEvent,
+  selectCleanupCapableDevices,
+  selectRecentRestoreEvents,
+  type CleanupCapabilityProjection,
+} from '../datasetOverview';
 
 const SYNC_AUTHORITY_DEVICE_ID = 'maneuver-sync-authority';
 
@@ -28,10 +38,17 @@ interface InMemoryDatasetState {
   dataset: TeamDataset;
   currentDocuments: Map<string, CanonicalSyncDocument>;
   changes: CanonicalSyncChange[];
-  credentials: Map<string, DatasetJoinCredential | DatasetCleanupCredential>;
+  credentials: Map<string, InMemoryStoredCredential>;
   devices: Map<string, JoinedDeviceIdentity>;
+  events: DatasetEventRecord[];
+  cleanupCapabilities: Map<string, CleanupCapabilityProjection>;
+  sharedRestoreEvents: SharedRestoreEvent[];
   cursor: number;
 }
+
+type InMemoryStoredCredential = (DatasetJoinCredential | DatasetCleanupCredential) & {
+  createdByDeviceId: string;
+};
 
 export function createInMemoryRemoteSyncAdapter(): RemoteSyncAdapter {
   return new InMemoryRemoteSyncAdapter();
@@ -56,6 +73,9 @@ class InMemoryRemoteSyncAdapter implements RemoteSyncAdapter {
       changes: [],
       credentials: new Map(),
       devices: new Map(),
+      events: [],
+      cleanupCapabilities: new Map(),
+      sharedRestoreEvents: [],
       cursor: 0,
     });
 
@@ -64,12 +84,13 @@ class InMemoryRemoteSyncAdapter implements RemoteSyncAdapter {
 
   async createJoinCredential(input: CreateJoinCredentialInput): Promise<DatasetJoinCredential> {
     const dataset = this.requireDataset(input.datasetId);
-    const credential: DatasetJoinCredential = {
+    const credential: InMemoryStoredCredential = {
       datasetId: input.datasetId,
       credentialId: crypto.randomUUID(),
       credentialKind: 'join',
       secret: crypto.randomUUID(),
       createdAt: Date.now(),
+      createdByDeviceId: input.operatorDeviceId,
       expiresAt: input.expiresAt,
     };
 
@@ -81,16 +102,24 @@ class InMemoryRemoteSyncAdapter implements RemoteSyncAdapter {
     input: CreateCleanupCredentialInput
   ): Promise<DatasetCleanupCredential> {
     const dataset = this.requireDataset(input.datasetId);
-    const credential: DatasetCleanupCredential = {
+    const credential: InMemoryStoredCredential = {
       datasetId: input.datasetId,
       credentialId: crypto.randomUUID(),
       credentialKind: 'cleanup',
       secret: crypto.randomUUID(),
       createdAt: Date.now(),
+      createdByDeviceId: input.operatorDeviceId,
+      provisionedDeviceId: input.provisionedDeviceId,
       expiresAt: input.expiresAt,
     };
 
     dataset.credentials.set(credential.credentialId, credential);
+    if (credential.provisionedDeviceId) {
+      dataset.cleanupCapabilities.set(credential.credentialId, {
+        deviceId: credential.provisionedDeviceId,
+        expiresAt: credential.expiresAt,
+      });
+    }
     return credential;
   }
 
@@ -108,6 +137,16 @@ class InMemoryRemoteSyncAdapter implements RemoteSyncAdapter {
     });
 
     return this.createJoinCredential(input);
+  }
+
+  async recordDatasetEvent(input: DatasetEventRecord): Promise<DatasetEventRecord> {
+    const dataset = this.requireDataset(input.datasetId);
+    const event = structuredClone(input);
+    dataset.events.push(event);
+    if (event.eventType === 'restore') {
+      dataset.sharedRestoreEvents.push(createSharedRestoreEvent(event));
+    }
+    return event;
   }
 
   async joinDataset(input: JoinDatasetInput): Promise<JoinedDeviceIdentity> {
@@ -255,6 +294,35 @@ class InMemoryRemoteSyncAdapter implements RemoteSyncAdapter {
         state: 'idle',
         pendingWrites: 0,
       },
+      checkedAt: Date.now(),
+    };
+  }
+
+  async getJoinedDatasetOverview(
+    input: GetJoinedDatasetOverviewInput
+  ): Promise<JoinedDatasetOverview> {
+    const dataset = this.requireDataset(input.datasetId);
+    const device = dataset.devices.get(input.deviceId);
+
+    if (!device || device.revokedAt) {
+      throw new Error(`Remote sync device is not joined to dataset ${input.datasetId}.`);
+    }
+
+    return {
+      datasetId: input.datasetId,
+      summary: {
+        documentCount: dataset.currentDocuments.size,
+        joinedDeviceCount: [...dataset.devices.values()].filter(identity => !identity.revokedAt)
+          .length,
+        currentCursor: dataset.cursor,
+        createdAt: dataset.dataset.createdAt,
+        lastChangedAt: dataset.changes.at(-1)?.changedAt,
+      },
+      cleanupCapableDevices: selectCleanupCapableDevices(
+        [...dataset.devices.values()],
+        [...dataset.cleanupCapabilities.values()]
+      ),
+      recentRestoreEvents: selectRecentRestoreEvents(dataset.sharedRestoreEvents),
       checkedAt: Date.now(),
     };
   }

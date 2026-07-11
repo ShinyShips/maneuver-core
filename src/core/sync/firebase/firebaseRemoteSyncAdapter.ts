@@ -14,6 +14,7 @@ import {
   setDoc,
   updateDoc,
   where,
+  writeBatch,
   type Firestore,
 } from 'firebase/firestore';
 import type {
@@ -24,6 +25,9 @@ import type {
   CreateJoinCredentialInput,
   DatasetCleanupCredential,
   DatasetHealth,
+  DatasetEventRecord,
+  GetJoinedDatasetOverviewInput,
+  JoinedDatasetOverview,
   DatasetJoinCredential,
   JoinDatasetInput,
   JoinedDeviceIdentity,
@@ -33,12 +37,19 @@ import type {
   PushDocumentsResult,
   RemoteSyncAdapter,
   RotateJoinCredentialInput,
+  SharedRestoreEvent,
   TeamDataset,
 } from '../types';
 import {
   CanonicalDocumentManualConflictError,
   reconcileCanonicalDocumentCandidate,
 } from '../canonicalDocumentReconciliation';
+import {
+  createSharedRestoreEvent,
+  selectCleanupCapableDevices,
+  selectRecentRestoreEvents,
+  type CleanupCapabilityProjection,
+} from '../datasetOverview';
 import type { FirebaseRemoteSyncConfig } from './remoteSyncFirebaseConfig';
 
 interface FirestoreCursorMetadata {
@@ -54,6 +65,10 @@ const DOCUMENTS = 'documents';
 const CHANGES = 'document_changes';
 const DEVICES = 'devices';
 const CREDENTIALS = 'credentials';
+const CLEANUP_CREDENTIALS = 'cleanup_credentials';
+const EVENTS = 'dataset_events';
+const PUBLIC_CLEANUP_DEVICES = 'public_cleanup_devices';
+const SHARED_RESTORE_EVENTS = 'shared_restore_events';
 const METADATA = 'metadata';
 const CURSOR = 'cursor';
 const SYNC_AUTHORITY_DEVICE_ID = 'maneuver-sync-authority';
@@ -139,13 +154,28 @@ class FirebaseRemoteSyncAdapter implements RemoteSyncAdapter {
       secret: crypto.randomUUID(),
       createdAt: Date.now(),
       createdByDeviceId: input.operatorDeviceId,
+      ...(input.provisionedDeviceId === undefined
+        ? {}
+        : { provisionedDeviceId: input.provisionedDeviceId }),
       expiresAt: input.expiresAt,
     };
 
-    await setDoc(
-      credentialRef(this.firestore, input.datasetId, credential.credentialId),
+    const batch = writeBatch(this.firestore);
+    batch.set(
+      cleanupCredentialRef(this.firestore, input.datasetId, credential.credentialId),
       credential
     );
+    if (credential.provisionedDeviceId) {
+      const cleanupCapability: CleanupCapabilityProjection = {
+        deviceId: credential.provisionedDeviceId,
+        ...(credential.expiresAt === undefined ? {} : { expiresAt: credential.expiresAt }),
+      };
+      batch.set(
+        publicCleanupDeviceRef(this.firestore, input.datasetId, credential.credentialId),
+        cleanupCapability
+      );
+    }
+    await batch.commit();
 
     return credential;
   }
@@ -156,6 +186,21 @@ class FirebaseRemoteSyncAdapter implements RemoteSyncAdapter {
     });
 
     return this.createJoinCredential(input);
+  }
+
+  async recordDatasetEvent(input: DatasetEventRecord): Promise<DatasetEventRecord> {
+    await assertDatasetExists(this.firestore, input.datasetId);
+    const event = structuredClone(input);
+    const batch = writeBatch(this.firestore);
+    batch.set(datasetEventRef(this.firestore, input.datasetId, input.eventId), event);
+    if (event.eventType === 'restore') {
+      batch.set(
+        sharedRestoreEventRef(this.firestore, input.datasetId, input.eventId),
+        createSharedRestoreEvent(event)
+      );
+    }
+    await batch.commit();
+    return event;
   }
 
   async joinDataset(input: JoinDatasetInput): Promise<JoinedDeviceIdentity> {
@@ -200,7 +245,7 @@ class FirebaseRemoteSyncAdapter implements RemoteSyncAdapter {
   async pushDocuments<TPayload = unknown>(
     input: PushDocumentsInput<TPayload>
   ): Promise<PushDocumentsResult<TPayload>> {
-    await assertDeviceCanWrite(this.firestore, input.datasetId, input.deviceId);
+    await assertJoinedDevice(this.firestore, input.datasetId, input.deviceId);
 
     return runTransaction(this.firestore, async transaction => {
       const cursorSnapshot = await transaction.get(cursorRef(this.firestore, input.datasetId));
@@ -347,6 +392,66 @@ class FirebaseRemoteSyncAdapter implements RemoteSyncAdapter {
       checkedAt: Date.now(),
     };
   }
+
+  async getJoinedDatasetOverview(
+    input: GetJoinedDatasetOverviewInput
+  ): Promise<JoinedDatasetOverview> {
+    await assertJoinedDevice(this.firestore, input.datasetId, input.deviceId);
+
+    const [
+      datasetSnapshot,
+      documentCount,
+      cursorSnapshot,
+      latestChanges,
+      deviceSnapshots,
+      cleanupCapabilitySnapshots,
+      sharedRestoreEventSnapshots,
+    ] =
+      await Promise.all([
+        getDoc(datasetRef(this.firestore, input.datasetId)),
+        getCountFromServer(collection(datasetRef(this.firestore, input.datasetId), DOCUMENTS)),
+        getDoc(cursorRef(this.firestore, input.datasetId)),
+        getDocs(
+          query(
+            collection(datasetRef(this.firestore, input.datasetId), CHANGES),
+            orderBy('cursor', 'desc'),
+            limit(1)
+          )
+        ),
+        getDocs(collection(datasetRef(this.firestore, input.datasetId), DEVICES)),
+        getDocs(collection(datasetRef(this.firestore, input.datasetId), PUBLIC_CLEANUP_DEVICES)),
+        getDocs(collection(datasetRef(this.firestore, input.datasetId), SHARED_RESTORE_EVENTS)),
+      ]);
+    const dataset = datasetSnapshot.data() as TeamDataset;
+    const cursorMetadata = cursorSnapshot.data() as FirestoreCursorMetadata | undefined;
+    const latestChange = latestChanges.docs[0]?.data() as CanonicalSyncChange | undefined;
+    const cleanupCapableDevices = selectCleanupCapableDevices(
+      deviceSnapshots.docs.map(snapshot => snapshot.data() as JoinedDeviceIdentity),
+      cleanupCapabilitySnapshots.docs.map(
+        snapshot => snapshot.data() as CleanupCapabilityProjection
+      )
+    );
+    const recentRestoreEvents = selectRecentRestoreEvents(
+      sharedRestoreEventSnapshots.docs.map(snapshot => snapshot.data() as SharedRestoreEvent)
+    );
+    const joinedDeviceCount = deviceSnapshots.docs
+      .map(snapshot => snapshot.data() as JoinedDeviceIdentity)
+      .filter(identity => !identity.revokedAt).length;
+
+    return {
+      datasetId: input.datasetId,
+      summary: {
+        documentCount: documentCount.data().count,
+        joinedDeviceCount,
+        currentCursor: cursorMetadata?.currentCursor ?? 0,
+        createdAt: dataset.createdAt,
+        lastChangedAt: latestChange?.changedAt,
+      },
+      cleanupCapableDevices,
+      recentRestoreEvents,
+      checkedAt: Date.now(),
+    };
+  }
 }
 
 function datasetRef(firestore: Firestore, datasetId: string) {
@@ -378,6 +483,22 @@ function credentialRef(firestore: Firestore, datasetId: string, credentialId: st
   return doc(datasetRef(firestore, datasetId), CREDENTIALS, credentialId);
 }
 
+function cleanupCredentialRef(firestore: Firestore, datasetId: string, credentialId: string) {
+  return doc(datasetRef(firestore, datasetId), CLEANUP_CREDENTIALS, credentialId);
+}
+
+function datasetEventRef(firestore: Firestore, datasetId: string, eventId: string) {
+  return doc(datasetRef(firestore, datasetId), EVENTS, eventId);
+}
+
+function publicCleanupDeviceRef(firestore: Firestore, datasetId: string, credentialId: string) {
+  return doc(datasetRef(firestore, datasetId), PUBLIC_CLEANUP_DEVICES, credentialId);
+}
+
+function sharedRestoreEventRef(firestore: Firestore, datasetId: string, eventId: string) {
+  return doc(datasetRef(firestore, datasetId), SHARED_RESTORE_EVENTS, eventId);
+}
+
 async function assertDatasetExists(firestore: Firestore, datasetId: string): Promise<void> {
   const snapshot = await getDoc(datasetRef(firestore, datasetId));
 
@@ -386,7 +507,7 @@ async function assertDatasetExists(firestore: Firestore, datasetId: string): Pro
   }
 }
 
-async function assertDeviceCanWrite(
+async function assertJoinedDevice(
   firestore: Firestore,
   datasetId: string,
   deviceId: string

@@ -50,6 +50,7 @@ export interface DatasetCleanupCredential {
   credentialKind: 'cleanup';
   secret: string;
   createdAt: number;
+  provisionedDeviceId?: string;
   expiresAt?: number;
   revokedAt?: number;
 }
@@ -119,6 +120,62 @@ export interface DatasetHealth {
   checkedAt: number;
 }
 
+export interface GetJoinedDatasetOverviewInput {
+  datasetId: string;
+  deviceId: string;
+}
+
+export interface DatasetSummarySignals {
+  documentCount: number;
+  joinedDeviceCount: number;
+  currentCursor: number;
+  createdAt: number;
+  lastChangedAt?: number;
+}
+
+export interface CleanupCapableDeviceSummary {
+  deviceId: string;
+  displayName: string;
+}
+
+export interface SharedRestoreEvent {
+  eventId: string;
+  actorDeviceId: string;
+  actorDisplayName: string;
+  occurredAt: number;
+  snapshotId: string;
+  snapshotLabel: string;
+  reason?: string;
+}
+
+interface DatasetEventRecordBase {
+  datasetId: string;
+  eventId: string;
+  actorDeviceId: string;
+  actorDisplayName: string;
+  occurredAt: number;
+}
+
+export interface BackupDatasetEventRecord extends DatasetEventRecordBase {
+  eventType: 'backup';
+  snapshotId?: string;
+  snapshotLabel?: string;
+}
+
+export interface RestoreDatasetEventRecord extends DatasetEventRecordBase, SharedRestoreEvent {
+  eventType: 'restore';
+}
+
+export type DatasetEventRecord = BackupDatasetEventRecord | RestoreDatasetEventRecord;
+
+export interface JoinedDatasetOverview {
+  datasetId: string;
+  summary: DatasetSummarySignals;
+  cleanupCapableDevices: CleanupCapableDeviceSummary[];
+  recentRestoreEvents: SharedRestoreEvent[];
+  checkedAt: number;
+}
+
 export interface CreateDatasetInput {
   displayName: string;
   operatorDeviceId: string;
@@ -135,6 +192,7 @@ export interface CreateJoinCredentialInput {
 export interface CreateCleanupCredentialInput {
   datasetId: string;
   operatorDeviceId: string;
+  provisionedDeviceId?: string;
   expiresAt?: number;
 }
 
@@ -183,6 +241,7 @@ export interface RemoteSyncClientAdapter {
   ): Promise<PushDocumentsResult<TPayload>>;
   pullChanges<TPayload = unknown>(input: PullChangesInput): Promise<PullChangesResult<TPayload>>;
   getDatasetHealth(datasetId: string): Promise<DatasetHealth>;
+  getJoinedDatasetOverview(input: GetJoinedDatasetOverviewInput): Promise<JoinedDatasetOverview>;
 }
 
 export interface RemoteSyncAdminAdapter {
@@ -190,6 +249,7 @@ export interface RemoteSyncAdminAdapter {
   createJoinCredential(input: CreateJoinCredentialInput): Promise<DatasetJoinCredential>;
   createCleanupCredential(input: CreateCleanupCredentialInput): Promise<DatasetCleanupCredential>;
   rotateJoinCredential(input: RotateJoinCredentialInput): Promise<DatasetJoinCredential>;
+  recordDatasetEvent(input: DatasetEventRecord): Promise<DatasetEventRecord>;
   getDatasetHealth(datasetId: string): Promise<DatasetHealth>;
 }
 

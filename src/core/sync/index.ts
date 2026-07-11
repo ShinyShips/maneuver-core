@@ -8,22 +8,30 @@ export type {
   CreateJoinCredentialInput,
   DatasetCleanupCredential,
   DatasetHealth,
+  DatasetEventRecord,
+  BackupDatasetEventRecord,
+  DatasetSummarySignals,
   DatasetJoinArtifact,
   DatasetJoinCredential,
   DatasetOperatorRecoveryArtifact,
   JoinDatasetInput,
   JoinedDeviceIdentity,
+  JoinedDatasetOverview,
+  GetJoinedDatasetOverviewInput,
+  CleanupCapableDeviceSummary,
   PullChangesInput,
   PullChangesResult,
   PushDocumentsInput,
   PushDocumentsResult,
   QueueHealth,
+  RestoreDatasetEventRecord,
   RemoteSyncFirebaseProjectConfig,
   RemoteSyncAdapter,
   RemoteSyncAdminAdapter,
   RemoteSyncClientAdapter,
   RotateJoinCredentialInput,
   TeamDataset,
+  SharedRestoreEvent,
 } from './types';
 
 export {
@@ -53,7 +61,7 @@ export {
   resolveScoutNameCollision,
   ScoutNameCollisionError,
 } from './scoutNameCollision';
-export { syncScoutingEntries } from './remoteSyncEngine';
+export { readJoinedDatasetOverview, syncScoutingEntries } from './remoteSyncEngine';
 export {
   createScoutProfileSyncDocumentCandidate,
   reconcileScoutProfile,

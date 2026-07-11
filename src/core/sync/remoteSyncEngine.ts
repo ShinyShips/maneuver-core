@@ -1,5 +1,5 @@
 import { createFirebaseRemoteSyncAdapter } from './firebase';
-import type { CanonicalSyncChange, RemoteSyncAdapter } from './types';
+import type { CanonicalSyncChange, JoinedDatasetOverview, RemoteSyncAdapter } from './types';
 import { db, deleteScoutingEntry, saveScoutingEntry } from '@/core/db/database';
 import type { ScoutingEntryBase } from '@/core/types/scouting-entry';
 import { loadRemoteSyncConnection, type RemoteSyncConnection } from './remoteSyncConnection';
@@ -43,6 +43,22 @@ export interface RemoteSyncRunResult {
   pushedCount: number;
   pulledCount: number;
   cursor: number;
+}
+
+export async function readJoinedDatasetOverview(
+  adapterOverride?: RemoteSyncAdapter
+): Promise<JoinedDatasetOverview> {
+  const connection = loadRemoteSyncConnection();
+
+  if (!connection) {
+    throw new Error('Join a Team dataset before reading dataset health.');
+  }
+
+  const adapter = adapterOverride ?? createAdapterForConnection(connection);
+  return adapter.getJoinedDatasetOverview({
+    datasetId: connection.datasetId,
+    deviceId: connection.deviceId,
+  });
 }
 
 export async function syncScoutingEntries(

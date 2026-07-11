@@ -177,6 +177,8 @@ await writeFile(
   entryPath,
   `
 import assert from 'node:assert/strict';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import {
   createCanonicalDocumentIdentity,
   createInMemoryRemoteSyncAdapter,
@@ -211,6 +213,7 @@ import {
 } from '@/core/db/database';
 import type { DatasetJoinArtifact } from '@/core/sync';
 import type { ScoutingEntryBase } from '@/core/types/scouting-entry';
+import { JoinedDatasetOverviewPanel } from '@/core/components/remote-sync/JoinedDatasetOverviewPanel';
 import {
   __getRemoteSyncContractScoutProfile,
   __resetRemoteSyncContractScoutProfiles,
@@ -700,6 +703,145 @@ async function runContract(): Promise<void> {
   assert.equal(firstSync.pushedCount, 1, 'queued entry is pushed');
   assert.equal(firstSync.cursor, 1, 'push advances the sync cursor');
   assert.equal(loadRemoteSyncQueue().length, 0, 'successful push drains the queue');
+  const joinedDeviceId = loadRemoteSyncConnection()?.deviceId;
+  assert.ok(joinedDeviceId, 'sync preserves the joined device identity');
+
+  const joinedOverview = await adapter.getJoinedDatasetOverview({
+    datasetId: dataset.datasetId,
+    deviceId: joinedDeviceId,
+  });
+  assert.deepEqual(
+    {
+      datasetId: joinedOverview.datasetId,
+      documentCount: joinedOverview.summary.documentCount,
+      joinedDeviceCount: joinedOverview.summary.joinedDeviceCount,
+      currentCursor: joinedOverview.summary.currentCursor,
+      hasCreatedAt: joinedOverview.summary.createdAt > 0,
+      hasLastChangedAt: (joinedOverview.summary.lastChangedAt ?? 0) > 0,
+      cleanupCapableDevices: joinedOverview.cleanupCapableDevices,
+      recentRestoreEvents: joinedOverview.recentRestoreEvents,
+    },
+    {
+      datasetId: dataset.datasetId,
+      documentCount: 1,
+      joinedDeviceCount: 1,
+      currentCursor: 1,
+      hasCreatedAt: true,
+      hasLastChangedAt: true,
+      cleanupCapableDevices: [],
+      recentRestoreEvents: [],
+    },
+    'an ordinary joined device can read broad dataset health without privileged state'
+  );
+  await assert.rejects(
+    () =>
+      adapter.getJoinedDatasetOverview({
+        datasetId: dataset.datasetId,
+        deviceId: 'not-joined',
+      }),
+    /not joined/,
+    'dataset health remains limited to joined devices'
+  );
+
+  await adapter.createCleanupCredential({
+    datasetId: dataset.datasetId,
+    operatorDeviceId: joinedDeviceId,
+  });
+  await adapter.createCleanupCredential({
+    datasetId: dataset.datasetId,
+    operatorDeviceId: 'operator',
+    provisionedDeviceId: joinedDeviceId,
+    expiresAt: 1,
+  });
+  const overviewWithoutCleanupAuthority = await adapter.getJoinedDatasetOverview({
+    datasetId: dataset.datasetId,
+    deviceId: joinedDeviceId,
+  });
+  assert.deepEqual(
+    overviewWithoutCleanupAuthority.cleanupCapableDevices,
+    [],
+    'credential creators and expired provisions are not shown as current cleanup authority'
+  );
+  await adapter.createCleanupCredential({
+    datasetId: dataset.datasetId,
+    operatorDeviceId: 'operator',
+    provisionedDeviceId: joinedDeviceId,
+  });
+  const overviewWithCleanupAuthority = await adapter.getJoinedDatasetOverview({
+    datasetId: dataset.datasetId,
+    deviceId: joinedDeviceId,
+  });
+  assert.deepEqual(
+    overviewWithCleanupAuthority.cleanupCapableDevices,
+    [
+      {
+        deviceId: joinedDeviceId,
+        displayName: 'client-a',
+      },
+    ],
+    'joined devices can see which device currently holds cleanup authority'
+  );
+
+  await adapter.recordDatasetEvent({
+    datasetId: dataset.datasetId,
+    eventId: 'backup-before-restore',
+    eventType: 'backup',
+    actorDeviceId: joinedDeviceId,
+    actorDisplayName: 'client-a',
+    occurredAt: 2_000,
+    snapshotId: 'snapshot-backup',
+    snapshotLabel: 'Routine 11:55 backup',
+  });
+  await adapter.recordDatasetEvent({
+    datasetId: dataset.datasetId,
+    eventId: 'restore-after-bad-import',
+    eventType: 'restore',
+    actorDeviceId: joinedDeviceId,
+    actorDisplayName: 'client-a',
+    occurredAt: 3_000,
+    snapshotId: 'snapshot-good-state',
+    snapshotLabel: 'Before qualification 12',
+    reason: 'Undo accidental duplicate import',
+  });
+  const overviewWithRestore = await adapter.getJoinedDatasetOverview({
+    datasetId: dataset.datasetId,
+    deviceId: joinedDeviceId,
+  });
+  assert.deepEqual(
+    overviewWithRestore.recentRestoreEvents,
+    [
+      {
+        eventId: 'restore-after-bad-import',
+        actorDeviceId: joinedDeviceId,
+        actorDisplayName: 'client-a',
+        occurredAt: 3_000,
+        snapshotId: 'snapshot-good-state',
+        snapshotLabel: 'Before qualification 12',
+        reason: 'Undo accidental duplicate import',
+      },
+    ],
+    'shared history includes attributed restore context but excludes routine backup noise'
+  );
+  const overviewMarkup = renderToStaticMarkup(
+    createElement(JoinedDatasetOverviewPanel, { overview: overviewWithRestore })
+  );
+  for (const visibleText of [
+    'Dataset health',
+    '1 canonical document',
+    '1 joined device',
+    'client-a',
+    'Cleanup capable',
+    'Before qualification 12',
+    'snapshot-good-state',
+    'Undo accidental duplicate import',
+  ]) {
+    assert.match(overviewMarkup, new RegExp(visibleText), 'joined overview shows ' + visibleText);
+  }
+  assert.doesNotMatch(
+    overviewMarkup,
+    /Routine 11:55 backup|snapshot-backup|cleanup credential|Create backup|Restore dataset/i,
+    'joined overview does not render backup noise, credentials, or recovery controls'
+  );
 
   attachClient('client-b', artifact);
   const secondSync = await syncScoutingEntries(adapter);

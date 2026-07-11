@@ -2,13 +2,49 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Local/dev Remote sync harness rules.
-    //
-    // These are intentionally permissive so the unauthenticated Firebase web SDK
-    // path can exercise Maneuver's adapter boundary against the emulator.
-    // Replace before deploying Remote sync to a real team backend.
-    match /datasets/{datasetId}/{document=**} {
+    // Local/dev Remote sync harness rules. Public joined-device data remains
+    // readable for the unauthenticated adapter path, while cleanup secrets and
+    // privileged operational history are never client-readable.
+    match /datasets/{datasetId} {
       allow read, write: if true;
+    }
+
+    match /datasets/{datasetId}/documents/{documentId} {
+      allow read, write: if true;
+    }
+
+    match /datasets/{datasetId}/document_changes/{changeId} {
+      allow read, write: if true;
+    }
+
+    match /datasets/{datasetId}/devices/{deviceId} {
+      allow read, write: if true;
+    }
+
+    match /datasets/{datasetId}/credentials/{credentialId} {
+      allow read, write: if true;
+    }
+
+    match /datasets/{datasetId}/metadata/{metadataId} {
+      allow read, write: if true;
+    }
+
+    match /datasets/{datasetId}/public_cleanup_devices/{projectionId} {
+      allow read, write: if true;
+    }
+
+    match /datasets/{datasetId}/shared_restore_events/{eventId} {
+      allow read, write: if true;
+    }
+
+    match /datasets/{datasetId}/cleanup_credentials/{credentialId} {
+      allow read: if false;
+      allow write: if true;
+    }
+
+    match /datasets/{datasetId}/dataset_events/{eventId} {
+      allow read: if false;
+      allow write: if true;
     }
   }
 }
