@@ -86,6 +86,16 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // Portable restore artifacts live only in the server-local snapshot store.
+    // No browser or joined-device Firestore path may read or mutate them.
+    match /datasets/{datasetId}/snapshots/{snapshotId} {
+      allow read, write: if false;
+    }
+
+    match /datasets/{datasetId}/snapshots/{snapshotId}/{document=**} {
+      allow read, write: if false;
+    }
+
     match /datasets/{datasetId}/cleanup_credentials/{credentialId} {
       allow read: if false;
       allow write: if true;

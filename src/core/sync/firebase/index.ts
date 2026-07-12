@@ -1,4 +1,9 @@
-export { createFirebaseRemoteSyncAdapter } from './firebaseRemoteSyncAdapter';
+export {
+  createFirebaseRemoteSyncAdapter,
+  createFirebaseRemoteSyncServerLocalAdapter,
+} from './firebaseRemoteSyncAdapter';
+export type { FirebaseServerLocalCapability } from './firebaseRemoteSyncAdapter';
+export type { ServerLocalSnapshotStore } from './serverLocalSnapshotStore';
 
 export {
   getFirebaseRemoteSyncConfigFromEnv,

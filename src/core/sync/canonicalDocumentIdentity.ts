@@ -73,6 +73,10 @@ export function createCanonicalDocumentIdentity(
   }
 }
 
+export function createCanonicalDocumentKey(documentType: string, documentId: string): string {
+  return `${documentType}:${documentId}`;
+}
+
 export function normalizeScoutProfileName(name: string): string {
   const normalizedName = name.normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
 

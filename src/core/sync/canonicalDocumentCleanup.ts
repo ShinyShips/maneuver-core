@@ -3,19 +3,19 @@ import type {
   CanonicalSyncChange,
   CanonicalSyncDocument,
   CleanupDatasetEventRecord,
+  DatasetActorIdentity,
 } from './types';
+import { createCanonicalDocumentKey } from './canonicalDocumentIdentity';
 
 export interface CanonicalCleanupCandidate {
   target: CanonicalDocumentTarget;
   document?: CanonicalSyncDocument;
 }
 
-export interface CreateCanonicalCleanupPlanInput {
+export interface CreateCanonicalCleanupPlanInput extends DatasetActorIdentity {
   datasetId: string;
   candidates: CanonicalCleanupCandidate[];
   currentCursor: number;
-  actorDeviceId: string;
-  actorDisplayName: string;
   eventId: string;
   occurredAt: number;
   reason?: string;
@@ -31,12 +31,14 @@ export interface CanonicalCleanupPlan {
 export function createCanonicalCleanupPlan(
   input: CreateCanonicalCleanupPlanInput
 ): CanonicalCleanupPlan {
-  const uniqueCandidates = [...new Map(
-    input.candidates.map(candidate => [
-      `${candidate.target.documentType}:${candidate.target.documentId}`,
-      candidate,
-    ])
-  ).values()];
+  const uniqueCandidates = [
+    ...new Map(
+      input.candidates.map(candidate => [
+        createCanonicalDocumentKey(candidate.target.documentType, candidate.target.documentId),
+        candidate,
+      ])
+    ).values(),
+  ];
   const cleanedDocuments: CanonicalSyncDocument[] = [];
   const changes: CanonicalSyncChange[] = [];
   const cleanedTargets: CanonicalDocumentTarget[] = [];

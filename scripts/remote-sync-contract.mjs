@@ -711,6 +711,56 @@ async function runContract(): Promise<void> {
   const joinedDeviceId = loadRemoteSyncConnection()?.deviceId;
   assert.ok(joinedDeviceId, 'sync preserves the joined device identity');
 
+  const portableSnapshot = await adapter.createPortableDatasetSnapshotServerLocal({
+    datasetId: dataset.datasetId,
+    actorDeviceId: 'utilities-server-local',
+    actorDisplayName: 'Utilities server-local operator',
+    snapshotLabel: 'Before qualification 12',
+  });
+  assert.deepEqual(
+    {
+      protocolVersion: portableSnapshot.protocolVersion,
+      dataset: portableSnapshot.dataset,
+      cursor: portableSnapshot.cursor,
+      documentIds: portableSnapshot.documents.map(document => document.documentId),
+      snapshotLabel: portableSnapshot.snapshotLabel,
+      actorDeviceId: portableSnapshot.createdBy.actorDeviceId,
+    },
+    {
+      protocolVersion: 1,
+      dataset,
+      cursor: 1,
+      documentIds: ['2026miket::qm1::3314::red'],
+      snapshotLabel: 'Before qualification 12',
+      actorDeviceId: 'utilities-server-local',
+    },
+    'the privileged admin seam produces a portable current-state dataset snapshot'
+  );
+  assert.deepEqual(
+    await adapter.getPortableDatasetSnapshotServerLocal(
+      dataset.datasetId,
+      portableSnapshot.snapshotId
+    ),
+    portableSnapshot,
+    'portable snapshots are durably retrievable for later restore or migration'
+  );
+  const unconfirmedRestore = await adapter.restorePortableDatasetSnapshotServerLocal({
+    datasetId: dataset.datasetId,
+    snapshot: portableSnapshot,
+    actorDeviceId: 'utilities-server-local',
+    actorDisplayName: 'Utilities server-local operator',
+    warningAccepted: false,
+    typedDatasetName: dataset.displayName,
+  });
+  assert.deepEqual(
+    unconfirmedRestore,
+    {
+      status: 'confirmation-required',
+      requiredDatasetName: dataset.displayName,
+    },
+    'server-local destructive restore requires both the warning and typed dataset name'
+  );
+
   const joinedOverview = await adapter.getJoinedDatasetOverview({
     datasetId: dataset.datasetId,
     deviceId: joinedDeviceId,
@@ -1471,6 +1521,164 @@ async function runContract(): Promise<void> {
       }),
     /does not have cleanup authority/,
     'a deprovisioned device cannot perform later destructive shared actions'
+  );
+
+  const beforeRestoreHealth = await adapter.getDatasetHealth(dataset.datasetId);
+  const restoreResult = await adapter.restorePortableDatasetSnapshotServerLocal({
+    datasetId: dataset.datasetId,
+    snapshot: portableSnapshot,
+    actorDeviceId: 'utilities-server-local',
+    actorDisplayName: 'Utilities server-local operator',
+    warningAccepted: true,
+    typedDatasetName: dataset.displayName,
+    reason: 'Undo accidental cleanup before qualification 12',
+  });
+  assert.equal(restoreResult.status, 'restored');
+  if (restoreResult.status !== 'restored') {
+    throw new Error('Expected the confirmed server-local restore to complete.');
+  }
+  assert.deepEqual(
+    {
+      safetySnapshotLabel: restoreResult.safetySnapshot?.snapshotLabel,
+      restoredDocumentIds: restoreResult.restoredDocuments
+        .filter(document => !document.tombstone)
+        .map(document => document.documentId),
+      cursorAdvanced: restoreResult.cursor > beforeRestoreHealth.currentCursor,
+      eventType: restoreResult.event.eventType,
+      snapshotId: restoreResult.event.snapshotId,
+      snapshotLabel: restoreResult.event.snapshotLabel,
+      actorDisplayName: restoreResult.event.actorDisplayName,
+      reason: restoreResult.event.reason,
+    },
+    {
+      safetySnapshotLabel: 'Pre-restore safety snapshot for ' + portableSnapshot.snapshotLabel,
+      restoredDocumentIds: ['2026miket::qm1::3314::red'],
+      cursorAdvanced: true,
+      eventType: 'restore',
+      snapshotId: portableSnapshot.snapshotId,
+      snapshotLabel: portableSnapshot.snapshotLabel,
+      actorDisplayName: 'Utilities server-local operator',
+      reason: 'Undo accidental cleanup before qualification 12',
+    },
+    'confirmed restore replaces canonical state, keeps the cursor monotonic, and creates a safety snapshot'
+  );
+  const restoreChanges = await adapter.pullChanges({
+    datasetId: dataset.datasetId,
+    afterCursor: beforeRestoreHealth.currentCursor,
+  });
+  assert.equal(
+    restoreChanges.changes.some(
+      change =>
+        change.documentId === '2026miket::qm1::3314::red' && !change.document.tombstone
+    ),
+    true,
+    'joined devices can replay the restored canonical state from their existing cursor'
+  );
+  const overviewAfterRestore = await adapter.getJoinedDatasetOverview({
+    datasetId: dataset.datasetId,
+    deviceId: ordinaryCleanupDevice.deviceId,
+  });
+  assert.deepEqual(
+    overviewAfterRestore.recentRestoreEvents[0],
+    {
+      eventId: restoreResult.event.eventId,
+      actorDeviceId: 'utilities-server-local',
+      actorDisplayName: 'Utilities server-local operator',
+      occurredAt: restoreResult.event.occurredAt,
+      snapshotId: portableSnapshot.snapshotId,
+      snapshotLabel: portableSnapshot.snapshotLabel,
+      reason: 'Undo accidental cleanup before qualification 12',
+    },
+    'ordinary joined devices see attributed restore identity and reason without routine backup events'
+  );
+
+  const createSnapshot = adapter.createPortableDatasetSnapshotServerLocal.bind(adapter);
+  adapter.createPortableDatasetSnapshotServerLocal = async input => {
+    if (input.snapshotLabel.startsWith('Pre-restore safety snapshot')) {
+      throw new Error('simulated safety snapshot storage failure');
+    }
+    return createSnapshot(input);
+  };
+  const beforeFailedSafetySnapshot = await adapter.getDatasetHealth(dataset.datasetId);
+  const blockedEmergencyRestore = await adapter.restorePortableDatasetSnapshotServerLocal({
+    datasetId: dataset.datasetId,
+    snapshot: portableSnapshot,
+    actorDeviceId: 'utilities-server-local',
+    actorDisplayName: 'Utilities server-local operator',
+    warningAccepted: true,
+    typedDatasetName: dataset.displayName,
+  });
+  assert.equal(blockedEmergencyRestore.status, 'emergency-override-required');
+  if (blockedEmergencyRestore.status !== 'emergency-override-required') {
+    throw new Error('Expected safety snapshot failure to issue an emergency override token.');
+  }
+  assert.equal(
+    blockedEmergencyRestore.safetySnapshotError,
+    'simulated safety snapshot storage failure'
+  );
+  assert.ok(
+    blockedEmergencyRestore.emergencyOverrideToken,
+    'safety snapshot failure issues a challenge for a separate override request'
+  );
+  assert.equal(
+    (await adapter.getDatasetHealth(dataset.datasetId)).currentCursor,
+    beforeFailedSafetySnapshot.currentCursor,
+    'safety snapshot failure does not mutate the Team dataset before override'
+  );
+  const emergencyRestore = await adapter.restorePortableDatasetSnapshotServerLocal({
+    datasetId: dataset.datasetId,
+    snapshot: portableSnapshot,
+    actorDeviceId: 'utilities-server-local',
+    actorDisplayName: 'Utilities server-local operator',
+    warningAccepted: true,
+    typedDatasetName: dataset.displayName,
+    emergencyOverrideToken: blockedEmergencyRestore.emergencyOverrideToken,
+    reason: 'Competition emergency recovery',
+  });
+  assert.equal(emergencyRestore.status, 'restored');
+  if (emergencyRestore.status !== 'restored') {
+    throw new Error('Expected explicit emergency override to complete the restore.');
+  }
+  assert.equal(
+    emergencyRestore.safetySnapshot,
+    undefined,
+    'emergency override reports that no pre-restore safety snapshot was created'
+  );
+
+  const migrationAdapter = createInMemoryRemoteSyncAdapter();
+  const migrationRestore = await migrationAdapter.restorePortableDatasetSnapshotServerLocal({
+    datasetId: portableSnapshot.dataset.datasetId,
+    snapshot: portableSnapshot,
+    actorDeviceId: 'migration-server-local',
+    actorDisplayName: 'Migration server-local operator',
+    warningAccepted: true,
+    typedDatasetName: portableSnapshot.dataset.displayName,
+    reason: 'Move the Team dataset to a replacement deployment',
+  });
+  assert.equal(migrationRestore.status, 'restored');
+  const migrationCredential = await migrationAdapter.createJoinCredential({
+    datasetId: portableSnapshot.dataset.datasetId,
+    operatorDeviceId: 'migration-server-local',
+  });
+  await migrationAdapter.joinDataset({
+    artifact: {
+      ...artifact,
+      credentialId: migrationCredential.credentialId,
+      credentialSecret: migrationCredential.secret,
+    },
+    deviceId: 'migration-client',
+    deviceDisplayName: 'Migration client',
+  });
+  const migratedChanges = await migrationAdapter.pullChanges({
+    datasetId: portableSnapshot.dataset.datasetId,
+    afterCursor: 0,
+  });
+  assert.equal(
+    migratedChanges.changes.some(
+      change => change.documentId === '2026miket::qm1::3314::red' && !change.document.tombstone
+    ),
+    true,
+    'a portable snapshot can seed a fresh deployment and replay to newly joined devices'
   );
 }
 

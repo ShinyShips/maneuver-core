@@ -142,10 +142,13 @@ export interface CleanupCapableDeviceSummary {
   displayName: string;
 }
 
-export interface SharedRestoreEvent {
-  eventId: string;
+export interface DatasetActorIdentity {
   actorDeviceId: string;
   actorDisplayName: string;
+}
+
+export interface SharedRestoreEvent extends DatasetActorIdentity {
+  eventId: string;
   occurredAt: number;
   snapshotId: string;
   snapshotLabel: string;
@@ -163,11 +166,9 @@ export interface CleanupDatasetEventRecord extends DatasetEventRecordBase {
   reason?: string;
 }
 
-interface DatasetEventRecordBase {
+interface DatasetEventRecordBase extends DatasetActorIdentity {
   datasetId: string;
   eventId: string;
-  actorDeviceId: string;
-  actorDisplayName: string;
   occurredAt: number;
 }
 
@@ -242,10 +243,8 @@ export interface CleanupCanonicalDocumentsInput {
   reason?: string;
 }
 
-export interface ServerLocalCleanupCanonicalDocumentsInput {
+export interface ServerLocalCleanupCanonicalDocumentsInput extends DatasetActorIdentity {
   datasetId: string;
-  actorDeviceId: string;
-  actorDisplayName: string;
   targets: CanonicalDocumentTarget[];
   reason?: string;
 }
@@ -255,6 +254,51 @@ export interface CleanupCanonicalDocumentsResult {
   cursor: number;
   event: CleanupDatasetEventRecord;
 }
+
+export interface PortableDatasetSnapshot {
+  protocolVersion: 1;
+  snapshotId: string;
+  snapshotLabel: string;
+  createdAt: number;
+  createdBy: DatasetActorIdentity;
+  dataset: TeamDataset;
+  cursor: number;
+  documents: CanonicalSyncDocument[];
+}
+
+export interface CreatePortableDatasetSnapshotServerLocalInput extends DatasetActorIdentity {
+  datasetId: string;
+  snapshotLabel: string;
+}
+
+export interface RestorePortableDatasetSnapshotServerLocalInput extends DatasetActorIdentity {
+  datasetId: string;
+  snapshot: PortableDatasetSnapshot;
+  warningAccepted: boolean;
+  typedDatasetName: string;
+  reason?: string;
+  emergencyOverrideToken?: string;
+}
+
+export interface RestorePortableDatasetSnapshotResult {
+  status: 'restored';
+  restoredDocuments: CanonicalSyncDocument[];
+  cursor: number;
+  event: RestoreDatasetEventRecord;
+  safetySnapshot?: PortableDatasetSnapshot;
+}
+
+export type ServerLocalRestoreResult =
+  | {
+      status: 'confirmation-required';
+      requiredDatasetName: string;
+    }
+  | {
+      status: 'emergency-override-required';
+      safetySnapshotError: string;
+      emergencyOverrideToken: string;
+    }
+  | RestorePortableDatasetSnapshotResult;
 
 export interface RotateJoinCredentialInput extends CreateJoinCredentialInput {
   previousCredentialId: string;
@@ -296,9 +340,7 @@ export interface PullChangesResult<TPayload = unknown> {
 
 export interface RemoteSyncClientAdapter {
   joinDataset(input: JoinDatasetInput): Promise<JoinedDeviceIdentity>;
-  provisionCleanupAuthority(
-    input: ProvisionCleanupAuthorityInput
-  ): Promise<CleanupAuthorityGrant>;
+  provisionCleanupAuthority(input: ProvisionCleanupAuthorityInput): Promise<CleanupAuthorityGrant>;
   deprovisionCleanupAuthority(input: DeprovisionCleanupAuthorityInput): Promise<void>;
   cleanupCanonicalDocuments(
     input: CleanupCanonicalDocumentsInput
@@ -320,6 +362,16 @@ export interface RemoteSyncAdminAdapter {
   cleanupCanonicalDocumentsServerLocal(
     input: ServerLocalCleanupCanonicalDocumentsInput
   ): Promise<CleanupCanonicalDocumentsResult>;
+  createPortableDatasetSnapshotServerLocal(
+    input: CreatePortableDatasetSnapshotServerLocalInput
+  ): Promise<PortableDatasetSnapshot>;
+  getPortableDatasetSnapshotServerLocal(
+    datasetId: string,
+    snapshotId: string
+  ): Promise<PortableDatasetSnapshot>;
+  restorePortableDatasetSnapshotServerLocal(
+    input: RestorePortableDatasetSnapshotServerLocalInput
+  ): Promise<ServerLocalRestoreResult>;
   getDatasetHealth(datasetId: string): Promise<DatasetHealth>;
 }
 

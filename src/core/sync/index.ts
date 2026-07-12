@@ -8,11 +8,13 @@ export type {
   CleanupCanonicalDocumentsInput,
   CleanupCanonicalDocumentsResult,
   CleanupDatasetEventRecord,
+  CreatePortableDatasetSnapshotServerLocalInput,
   CreateCleanupCredentialInput,
   CreateDatasetInput,
   CreateJoinCredentialInput,
   DeprovisionCleanupAuthorityInput,
   DatasetCleanupCredential,
+  DatasetActorIdentity,
   DatasetCleanupProvisioningArtifact,
   DatasetHealth,
   DatasetEventRecord,
@@ -28,12 +30,16 @@ export type {
   CleanupCapableDeviceSummary,
   PullChangesInput,
   PullChangesResult,
+  PortableDatasetSnapshot,
   ProvisionCleanupAuthorityInput,
   PushDocumentsInput,
   PushDocumentsResult,
   QueueHealth,
   RestoreDatasetEventRecord,
+  RestorePortableDatasetSnapshotResult,
+  RestorePortableDatasetSnapshotServerLocalInput,
   ServerLocalCleanupCanonicalDocumentsInput,
+  ServerLocalRestoreResult,
   RemoteSyncFirebaseProjectConfig,
   RemoteSyncAdapter,
   RemoteSyncAdminAdapter,
@@ -45,9 +51,11 @@ export type {
 
 export {
   createCanonicalDocumentIdentity,
+  createCanonicalDocumentKey,
   inspectScoutNameCollision,
   normalizeScoutProfileName,
 } from './canonicalDocumentIdentity';
+export { ServerLocalRestoreFailedError } from './portableDatasetRestore';
 export {
   clearRemoteSyncConnection,
   createRemoteSyncConnection,
@@ -134,8 +142,14 @@ export type {
 
 export {
   createFirebaseRemoteSyncAdapter,
+  createFirebaseRemoteSyncServerLocalAdapter,
   getFirebaseRemoteSyncConfigFromEnv,
   isFirebaseRemoteSyncConfigured,
 } from './firebase';
 
-export type { FirebaseRemoteSyncConfig, FirebaseRemoteSyncEnv } from './firebase';
+export type {
+  FirebaseRemoteSyncConfig,
+  FirebaseRemoteSyncEnv,
+  FirebaseServerLocalCapability,
+  ServerLocalSnapshotStore,
+} from './firebase';

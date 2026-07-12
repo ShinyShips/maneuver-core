@@ -5,6 +5,7 @@ import type {
   CleanupCanonicalDocumentsInput,
   CleanupCanonicalDocumentsResult,
   CleanupDatasetEventRecord,
+  CreatePortableDatasetSnapshotServerLocalInput,
   CreateCleanupCredentialInput,
   CreateDatasetInput,
   CreateJoinCredentialInput,
@@ -19,12 +20,15 @@ import type {
   JoinedDeviceIdentity,
   PullChangesInput,
   PullChangesResult,
+  PortableDatasetSnapshot,
   ProvisionCleanupAuthorityInput,
   PushDocumentsInput,
   PushDocumentsResult,
   RemoteSyncAdapter,
+  RestorePortableDatasetSnapshotServerLocalInput,
   RotateJoinCredentialInput,
   ServerLocalCleanupCanonicalDocumentsInput,
+  ServerLocalRestoreResult,
   SharedRestoreEvent,
   TeamDataset,
 } from '../types';
@@ -32,7 +36,13 @@ import {
   CanonicalDocumentManualConflictError,
   reconcileCanonicalDocumentCandidate,
 } from '../canonicalDocumentReconciliation';
+import { createCanonicalDocumentKey } from '../canonicalDocumentIdentity';
 import { createCanonicalCleanupPlan } from '../canonicalDocumentCleanup';
+import {
+  assertPortableDatasetSnapshotMatchesDataset,
+  createPortableDatasetRestorePlan,
+  ServerLocalRestorePolicy,
+} from '../portableDatasetRestore';
 import {
   createSharedRestoreEvent,
   selectCleanupCapableDevices,
@@ -53,6 +63,7 @@ interface InMemoryDatasetState {
   cleanupCapabilities: Map<string, CleanupCapabilityProjection>;
   sharedRestoreEvents: SharedRestoreEvent[];
   sharedCleanupEvents: CleanupDatasetEventRecord[];
+  snapshots: Map<string, PortableDatasetSnapshot>;
   cursor: number;
 }
 
@@ -66,6 +77,7 @@ export function createInMemoryRemoteSyncAdapter(): RemoteSyncAdapter {
 
 class InMemoryRemoteSyncAdapter implements RemoteSyncAdapter {
   private readonly datasets = new Map<string, InMemoryDatasetState>();
+  private readonly restorePolicy = new ServerLocalRestorePolicy();
 
   async createDataset(input: CreateDatasetInput): Promise<TeamDataset> {
     const dataset: TeamDataset = {
@@ -87,6 +99,7 @@ class InMemoryRemoteSyncAdapter implements RemoteSyncAdapter {
       cleanupCapabilities: new Map(),
       sharedRestoreEvents: [],
       sharedCleanupEvents: [],
+      snapshots: new Map(),
       cursor: 0,
     });
 
@@ -166,9 +179,7 @@ class InMemoryRemoteSyncAdapter implements RemoteSyncAdapter {
     return grant;
   }
 
-  async deprovisionCleanupAuthority(
-    input: DeprovisionCleanupAuthorityInput
-  ): Promise<void> {
+  async deprovisionCleanupAuthority(input: DeprovisionCleanupAuthorityInput): Promise<void> {
     const dataset = this.requireDataset(input.datasetId);
     for (const [credentialId, capability] of dataset.cleanupCapabilities) {
       if (capability.deviceId === input.deviceId) {
@@ -215,6 +226,128 @@ class InMemoryRemoteSyncAdapter implements RemoteSyncAdapter {
     );
   }
 
+  async createPortableDatasetSnapshotServerLocal(
+    input: CreatePortableDatasetSnapshotServerLocalInput
+  ): Promise<PortableDatasetSnapshot> {
+    const state = this.requireDataset(input.datasetId);
+    const createdAt = Date.now();
+    const snapshot: PortableDatasetSnapshot = {
+      protocolVersion: 1,
+      snapshotId: crypto.randomUUID(),
+      snapshotLabel: input.snapshotLabel,
+      createdAt,
+      createdBy: {
+        actorDeviceId: input.actorDeviceId,
+        actorDisplayName: input.actorDisplayName,
+      },
+      dataset: structuredClone(state.dataset),
+      cursor: state.cursor,
+      documents: [...state.currentDocuments.values()]
+        .sort((left, right) =>
+          createCanonicalDocumentKey(left.documentType, left.documentId).localeCompare(
+            createCanonicalDocumentKey(right.documentType, right.documentId)
+          )
+        )
+        .map(document => structuredClone(document)),
+    };
+    state.events.push({
+      datasetId: input.datasetId,
+      eventId: crypto.randomUUID(),
+      eventType: 'backup',
+      actorDeviceId: input.actorDeviceId,
+      actorDisplayName: input.actorDisplayName,
+      occurredAt: createdAt,
+      snapshotId: snapshot.snapshotId,
+      snapshotLabel: snapshot.snapshotLabel,
+    });
+    state.snapshots.set(snapshot.snapshotId, structuredClone(snapshot));
+    return snapshot;
+  }
+
+  async getPortableDatasetSnapshotServerLocal(
+    datasetId: string,
+    snapshotId: string
+  ): Promise<PortableDatasetSnapshot> {
+    const snapshot = this.requireDataset(datasetId).snapshots.get(snapshotId);
+    if (!snapshot) {
+      throw new Error(`Portable dataset snapshot not found: ${snapshotId}`);
+    }
+    return structuredClone(snapshot);
+  }
+
+  async restorePortableDatasetSnapshotServerLocal(
+    input: RestorePortableDatasetSnapshotServerLocalInput
+  ): Promise<ServerLocalRestoreResult> {
+    let state = this.datasets.get(input.datasetId);
+    const requiredDatasetName = state?.dataset.displayName ?? input.snapshot.dataset.displayName;
+    const confirmationRequired = this.restorePolicy.requireConfirmation(input, requiredDatasetName);
+    if (confirmationRequired) {
+      return confirmationRequired;
+    }
+    assertPortableDatasetSnapshotMatchesDataset(input.snapshot, input.datasetId);
+    const isMigration = !state;
+    if (!state) {
+      state = {
+        dataset: structuredClone(input.snapshot.dataset),
+        currentDocuments: new Map(),
+        changes: [],
+        credentials: new Map(),
+        devices: new Map(),
+        events: [],
+        cleanupCapabilities: new Map(),
+        sharedRestoreEvents: [],
+        sharedCleanupEvents: [],
+        snapshots: new Map(),
+        cursor: 0,
+      };
+      this.datasets.set(input.datasetId, state);
+    }
+
+    let safetySnapshot: PortableDatasetSnapshot | undefined;
+    if (!isMigration) {
+      try {
+        safetySnapshot = await this.createPortableDatasetSnapshotServerLocal(
+          this.restorePolicy.createSafetySnapshotInput(input)
+        );
+      } catch (error) {
+        const overrideRequired = this.restorePolicy.handleSafetySnapshotFailure(input, error);
+        if (overrideRequired) {
+          return overrideRequired;
+        }
+      }
+    }
+    const plan = createPortableDatasetRestorePlan({
+      datasetId: input.datasetId,
+      snapshot: input.snapshot,
+      currentDocuments: [...state.currentDocuments.values()],
+      currentCursor: state.cursor,
+      actorDeviceId: input.actorDeviceId,
+      actorDisplayName: input.actorDisplayName,
+      occurredAt: Date.now(),
+      eventId: crypto.randomUUID(),
+      ...(input.reason === undefined ? {} : { reason: input.reason }),
+    });
+    for (const document of plan.restoredDocuments) {
+      state.currentDocuments.set(
+        createCanonicalDocumentKey(document.documentType, document.documentId),
+        document
+      );
+    }
+    state.cursor = plan.cursor;
+    state.changes.push(...plan.changes);
+    state.dataset = structuredClone(input.snapshot.dataset);
+    state.events.push(plan.event);
+    state.sharedRestoreEvents.push(createSharedRestoreEvent(plan.event));
+    this.restorePolicy.complete(input);
+    return {
+      status: 'restored',
+      restoredDocuments: plan.restoredDocuments.map(document => structuredClone(document)),
+      cursor: state.cursor,
+      event: structuredClone(plan.event),
+      safetySnapshot,
+    };
+  }
+
   private commitCleanup(
     dataset: InMemoryDatasetState,
     datasetId: string,
@@ -233,14 +366,14 @@ class InMemoryRemoteSyncAdapter implements RemoteSyncAdapter {
       candidates: targets.map(target => ({
         target,
         document: dataset.currentDocuments.get(
-          getDocumentKey(target.documentType, target.documentId)
+          createCanonicalDocumentKey(target.documentType, target.documentId)
         ),
       })),
       ...(reason === undefined ? {} : { reason }),
     });
     for (const document of plan.cleanedDocuments) {
       dataset.currentDocuments.set(
-        getDocumentKey(document.documentType, document.documentId),
+        createCanonicalDocumentKey(document.documentType, document.documentId),
         document
       );
     }
@@ -323,7 +456,7 @@ class InMemoryRemoteSyncAdapter implements RemoteSyncAdapter {
     const committed: CanonicalSyncDocument<TPayload>[] = [];
 
     for (const documentCandidate of input.documents) {
-      const documentKey = getDocumentKey(
+      const documentKey = createCanonicalDocumentKey(
         documentCandidate.documentType,
         documentCandidate.documentId
       );
@@ -467,8 +600,4 @@ class InMemoryRemoteSyncAdapter implements RemoteSyncAdapter {
 
     return dataset;
   }
-}
-
-function getDocumentKey(documentType: string, documentId: string): string {
-  return `${documentType}:${documentId}`;
 }
