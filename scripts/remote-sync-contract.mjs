@@ -55,11 +55,17 @@ export const db = {
     async put(entry: ScoutingEntryBase<Record<string, unknown>>) {
       activeStore().set(entry.id, entry);
     },
+    async bulkPut(entries: ScoutingEntryBase<Record<string, unknown>>[]) {
+      entries.forEach(entry => activeStore().set(entry.id, entry));
+    },
     async delete(id: string) {
       activeStore().delete(id);
     },
     async toArray() {
       return [...activeStore().values()];
+    },
+    async count() {
+      return activeStore().size;
     },
   },
 };
@@ -184,6 +190,10 @@ import assert from 'node:assert/strict';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import {
+  installBrowserTestEnvironment,
+  MemoryStorage,
+} from '/scripts/remote-sync-test-browser-env.mjs';
+import {
   createCanonicalDocumentIdentity,
   createInMemoryRemoteSyncAdapter,
   createJoinDatasetInputFromConnection,
@@ -222,39 +232,21 @@ import {
   deleteScoutingEntry,
   saveScoutingEntry,
 } from '@/core/db/database';
-import type { DatasetJoinArtifact } from '@/core/sync';
+import type { DatasetJoinArtifact, RemoteSyncClientAdapter } from '@/core/sync';
 import type { ScoutingEntryBase } from '@/core/types/scouting-entry';
 import { JoinedDatasetOverviewPanel } from '@/core/components/remote-sync/JoinedDatasetOverviewPanel';
 import { CleanupAuthorityPanel } from '@/core/components/remote-sync/CleanupAuthorityPanel';
 import { PostRejoinRecoveryPanel } from '@/core/components/remote-sync/PostRejoinRecoveryPanel';
 import { RejoinRecoveryReviewPanel } from '@/core/components/remote-sync/RejoinRecoveryReviewPanel';
 import { ScoutingExportScopePanel } from '@/core/components/data-transfer/ScoutingExportScopePanel';
+import { handleScoutingDataUpload } from '@/core/lib/uploadHandlers/scoutingDataUploadHandler';
+import { usePeerTransferPush } from '@/core/hooks/usePeerTransferPush';
 import {
   __getRemoteSyncContractScoutProfile,
   __resetRemoteSyncContractScoutProfiles,
   __setRemoteSyncContractScoutProfile,
   __useRemoteSyncContractScoutProfileClient,
 } from '@/core/sync/scoutProfileStore';
-
-class MemoryStorage {
-  private values = new Map<string, string>();
-
-  getItem(key: string): string | null {
-    return this.values.get(key) ?? null;
-  }
-
-  setItem(key: string, value: string): void {
-    this.values.set(key, value);
-  }
-
-  removeItem(key: string): void {
-    this.values.delete(key);
-  }
-
-  clear(): void {
-    this.values.clear();
-  }
-}
 
 const browserStores = new Map<string, MemoryStorage>();
 
@@ -269,41 +261,7 @@ function useClient(clientId: string): void {
     browserStores.set(clientId, storage);
   }
 
-  const windowLike = {
-    localStorage: storage,
-    addEventListener: () => undefined,
-    removeEventListener: () => undefined,
-    dispatchEvent: () => true,
-    matchMedia: () => ({ matches: true }),
-  };
-
-  Object.defineProperty(globalThis, 'window', {
-    configurable: true,
-    value: windowLike,
-  });
-  Object.defineProperty(globalThis, 'localStorage', {
-    configurable: true,
-    value: storage,
-  });
-  Object.defineProperty(globalThis, 'navigator', {
-    configurable: true,
-    value: { onLine: true, platform: 'RemoteSyncContract' },
-  });
-
-  if (!('CustomEvent' in globalThis)) {
-    Object.defineProperty(globalThis, 'CustomEvent', {
-      configurable: true,
-      value: class CustomEvent {
-        type: string;
-        detail: unknown;
-
-        constructor(type: string, init: { detail?: unknown } = {}) {
-          this.type = type;
-          this.detail = init.detail;
-        }
-      },
-    });
-  }
+  installBrowserTestEnvironment(storage);
 }
 
 function scoutingEntry(overrides: Partial<ScoutingEntryBase<Record<string, unknown>>> = {}) {
@@ -336,6 +294,40 @@ function attachClient(
       eventKeys,
     })
   );
+}
+
+async function createContractDatasetFixture(
+  adapter: ReturnType<typeof createInMemoryRemoteSyncAdapter>,
+  input: {
+    displayName: string;
+    operatorDeviceId: string;
+    projectId: string;
+    joinedDeviceIds?: string[];
+    scopeKey?: string;
+  }
+) {
+  const dataset = await adapter.createDataset({
+    displayName: input.displayName,
+    operatorDeviceId: input.operatorDeviceId,
+  });
+  const credential = await adapter.createJoinCredential({
+    datasetId: dataset.datasetId,
+    operatorDeviceId: input.operatorDeviceId,
+  });
+  const artifact: DatasetJoinArtifact = {
+    protocolVersion: 1,
+    backend: 'firebase',
+    datasetId: dataset.datasetId,
+    datasetName: dataset.displayName,
+    credentialId: credential.credentialId,
+    credentialSecret: credential.secret,
+    firebase: { projectId: input.projectId },
+    recommendedDefaults: { queueMode: 'local-first', scopeKey: input.scopeKey },
+  };
+  for (const deviceId of input.joinedDeviceIds ?? []) {
+    await adapter.joinDataset({ artifact, deviceId, deviceDisplayName: deviceId });
+  }
+  return { artifact, credential, dataset };
 }
 
 async function runContract(): Promise<void> {
@@ -588,35 +580,13 @@ async function runContract(): Promise<void> {
   );
 
   const profileAdapter = createInMemoryRemoteSyncAdapter();
-  const profileDataset = await profileAdapter.createDataset({
-    displayName: 'Scout profile reconciliation dataset',
-    operatorDeviceId: 'profile-operator',
-  });
-  const profileCredential = await profileAdapter.createJoinCredential({
-    datasetId: profileDataset.datasetId,
-    operatorDeviceId: 'profile-operator',
-  });
-  const profileArtifact: DatasetJoinArtifact = {
-    protocolVersion: 1,
-    backend: 'firebase',
-    datasetId: profileDataset.datasetId,
-    datasetName: profileDataset.displayName,
-    credentialId: profileCredential.credentialId,
-    credentialSecret: profileCredential.secret,
-    firebase: {
+  const { artifact: profileArtifact, dataset: profileDataset } =
+    await createContractDatasetFixture(profileAdapter, {
+      displayName: 'Scout profile reconciliation dataset',
+      operatorDeviceId: 'profile-operator',
       projectId: 'profile-reconciliation-contract',
-    },
-    recommendedDefaults: {
-      queueMode: 'local-first',
-    },
-  };
-  for (const deviceId of ['profile-client-a', 'profile-client-b']) {
-    await profileAdapter.joinDataset({
-      artifact: profileArtifact,
-      deviceId,
-      deviceDisplayName: deviceId,
+      joinedDeviceIds: ['profile-client-a', 'profile-client-b'],
     });
-  }
   await profileAdapter.pushDocuments({
     datasetId: profileDataset.datasetId,
     deviceId: 'profile-client-a',
@@ -644,34 +614,128 @@ async function runContract(): Promise<void> {
     'the adapter stores the merged Scout profile rather than blindly replacing it'
   );
 
+  const wholeDocumentAdapter = createInMemoryRemoteSyncAdapter();
+  const { artifact: wholeDocumentArtifact, dataset: wholeDocumentDataset } =
+    await createContractDatasetFixture(wholeDocumentAdapter, {
+      displayName: 'Whole-document upsert dataset',
+      operatorDeviceId: 'whole-document-operator',
+      projectId: 'whole-document-upsert-contract',
+      joinedDeviceIds: ['whole-document-writer', 'whole-document-reader'],
+    });
+  const firstWholeDocumentPush = await wholeDocumentAdapter.pushDocuments({
+    datasetId: wholeDocumentDataset.datasetId,
+    deviceId: 'whole-document-writer',
+    documents: [
+      {
+        documentId: '2026miket:3314',
+        documentType: 'pit-scouting-entry',
+        scopeKey: '2026miket',
+        tombstone: false,
+        payload: { teamNumber: 3314, comments: 'first version', transientField: 'remove me' },
+      },
+    ],
+  });
+  await wholeDocumentAdapter.pushDocuments({
+    datasetId: wholeDocumentDataset.datasetId,
+    deviceId: 'whole-document-writer',
+    documents: [
+      {
+        documentId: '2026miket:3314',
+        documentType: 'pit-scouting-entry',
+        scopeKey: '2026miket',
+        tombstone: false,
+        payload: { teamNumber: 3314, comments: 'replacement version' },
+      },
+    ],
+  });
+  const wholeDocumentCatchUp = await wholeDocumentAdapter.pullChanges({
+    datasetId: wholeDocumentDataset.datasetId,
+    deviceId: 'whole-document-reader',
+    afterCursor: firstWholeDocumentPush.cursor,
+  });
+  assert.deepEqual(
+    {
+      revision: wholeDocumentCatchUp.changes[0]?.document.revision,
+      payload: wholeDocumentCatchUp.changes[0]?.document.payload,
+    },
+    {
+      revision: 2,
+      payload: { teamNumber: 3314, comments: 'replacement version' },
+    },
+    'the Sync service replays a full-document replacement rather than a field patch'
+  );
+
+  attachClient('queue-replay-client', wholeDocumentArtifact);
+  const replayedEntry = scoutingEntry({
+    id: '2026miket::qm22::3314::blue',
+    matchKey: 'qm22',
+    matchNumber: 22,
+    allianceColor: 'blue',
+    timestamp: 22_000,
+    comments: 'survives transient service failure',
+  });
+  await saveScoutingEntry(replayedEntry);
+  let rejectNextPush = true;
+  const transientFailureAdapter = new Proxy(wholeDocumentAdapter, {
+    get(target, property, receiver) {
+      if (property !== 'pushDocuments') {
+        return Reflect.get(target, property, receiver);
+      }
+      return async (input: Parameters<RemoteSyncClientAdapter['pushDocuments']>[0]) => {
+        if (rejectNextPush) {
+          rejectNextPush = false;
+          throw new Error('temporary Sync service failure');
+        }
+        return target.pushDocuments(input);
+      };
+    },
+  }) satisfies RemoteSyncClientAdapter;
+  await assert.rejects(
+    () => syncScoutingEntries(transientFailureAdapter),
+    /temporary Sync service failure/,
+    'a transient Sync service failure is observable to the client'
+  );
+  assert.deepEqual(
+    {
+      queueState: getRemoteSyncQueueHealth().state,
+      pendingWrites: getRemoteSyncQueueHealth().pendingWrites,
+    },
+    {
+      queueState: 'error',
+      pendingWrites: 1,
+    },
+    'a failed push leaves one client-visible pending write ready for replay'
+  );
+  const replaySync = await syncScoutingEntries(transientFailureAdapter);
+  assert.equal(replaySync.pushedCount, 1, 'the next sync replays the retained queue item');
+  assert.deepEqual(
+    {
+      queueState: getRemoteSyncQueueHealth().state,
+      pendingWrites: getRemoteSyncQueueHealth().pendingWrites,
+    },
+    { queueState: 'idle', pendingWrites: 0 },
+    'successful queue replay restores idle client-visible Queue health'
+  );
+
+  attachClient('queue-replay-observer', wholeDocumentArtifact);
+  await syncScoutingEntries(wholeDocumentAdapter);
+  assert.deepEqual(
+    __getRemoteSyncContractEntry(replayedEntry.id),
+    { ...replayedEntry, eventKey: '2026miket' },
+    'another client catches up the full document committed by queue replay'
+  );
+
   useClient('offline-only');
   await saveScoutingEntry(scoutingEntry());
   assert.equal(loadRemoteSyncQueue().length, 0, 'offline local writes do not create a remote queue');
 
   const adapter = createInMemoryRemoteSyncAdapter();
-  const dataset = await adapter.createDataset({
+  const { artifact, credential, dataset } = await createContractDatasetFixture(adapter, {
     displayName: 'Remote sync contract dataset',
     operatorDeviceId: 'operator',
+    projectId: 'remote-sync-contract',
+    scopeKey: '2026miket',
   });
-  const credential = await adapter.createJoinCredential({
-    datasetId: dataset.datasetId,
-    operatorDeviceId: 'operator',
-  });
-  const artifact: DatasetJoinArtifact = {
-    protocolVersion: 1,
-    backend: 'firebase',
-    datasetId: dataset.datasetId,
-    datasetName: dataset.displayName,
-    credentialId: credential.credentialId,
-    credentialSecret: credential.secret,
-    firebase: {
-      projectId: 'remote-sync-contract',
-    },
-    recommendedDefaults: {
-      scopeKey: '2026miket',
-      queueMode: 'local-first',
-    },
-  };
 
   useClient('join-prune-client');
   await saveScoutingEntry(
@@ -1271,6 +1335,44 @@ async function runContract(): Promise<void> {
     localExport.entries.some(entry => entry.id === '2026miket::qm21::3314::red'),
     true,
     'local export reads the current device replica without service access'
+  );
+
+  attachClient('offline-import-client', artifact, ['2026miket']);
+  await handleScoutingDataUpload(JSON.parse(JSON.stringify(localExport)), 'overwrite');
+  const importedOfflineExport = await createScoutingDataExport({ source: 'device-local' });
+  assert.deepEqual(
+    importedOfflineExport.entries.map(entry => entry.id),
+    localExport.entries.map(entry => entry.id),
+    'Offline export/import persists the same scouting records while Remote sync is configured'
+  );
+
+  useClient('local-export-client');
+  let peerTransferPayload: { data: unknown; dataType: string } | undefined;
+  let peerTransfer: ReturnType<typeof usePeerTransferPush> | undefined;
+  function PeerTransferProbe() {
+    peerTransfer = usePeerTransferPush({
+      addToReceivedData: () => undefined,
+      pushDataToAll: (data, dataType) => {
+        peerTransferPayload = { data, dataType };
+      },
+    });
+    return null;
+  }
+  renderToStaticMarkup(createElement(PeerTransferProbe));
+  assert.ok(peerTransfer, 'Peer transfer exposes its public push flow');
+  await peerTransfer.pushData('scouting', [
+    { name: 'Peer receiver', channel: { readyState: 'open' } as RTCDataChannel },
+  ]);
+  assert.equal(peerTransferPayload?.dataType, 'scouting');
+  assert.ok(peerTransferPayload, 'Peer transfer delivers a scouting payload to its transport');
+
+  attachClient('peer-transfer-receiver', artifact, ['2026miket']);
+  await handleScoutingDataUpload(peerTransferPayload.data, 'overwrite');
+  const importedPeerExport = await createScoutingDataExport({ source: 'device-local' });
+  assert.deepEqual(
+    importedPeerExport.entries.map(entry => entry.id),
+    localExport.entries.map(entry => entry.id),
+    'Peer transfer push and receive/import preserve scouting records alongside Remote sync'
   );
 
   const scopedRemoteExport = await createScoutingDataExport(

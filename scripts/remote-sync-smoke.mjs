@@ -90,10 +90,9 @@ if (useEmulator) {
       firestoreEmulator: { host: emulatorHost, port: emulatorPort },
     };
     const browserAdapter = createFirebaseRemoteSyncAdapter(config);
+    const snapshotStorePath = path.join(tmpdir(), 'maneuver-remote-sync-smoke', projectId);
     const serverAdapter = createFirebaseRemoteSyncServerLocalAdapter(config, {
-      snapshotStore: createFileServerLocalSnapshotStore(
-        path.join(tmpdir(), 'maneuver-remote-sync-smoke', projectId)
-      ),
+      snapshotStore: createFileServerLocalSnapshotStore(snapshotStorePath),
     });
     const dataset = await serverAdapter.createDataset({
       displayName: 'Remote sync restore smoke dataset',
@@ -158,6 +157,16 @@ if (useEmulator) {
     );
     if (durableSnapshot.documents.length !== 260) {
       throw new Error('Portable Firebase snapshot was not durably retrievable.');
+    }
+    const restartedServerAdapter = createFirebaseRemoteSyncServerLocalAdapter(config, {
+      snapshotStore: createFileServerLocalSnapshotStore(snapshotStorePath),
+    });
+    const snapshotAfterRestart = await restartedServerAdapter.getPortableDatasetSnapshotServerLocal(
+      dataset.datasetId,
+      portableSnapshot.snapshotId
+    );
+    if (snapshotAfterRestart.documents.length !== 260) {
+      throw new Error('Portable Firebase snapshot did not survive adapter restart.');
     }
     const snapshotRulesApp = initializeApp(config.firebase, `snapshot-rules-${Date.now()}`);
     const snapshotRulesFirestore = getFirestore(snapshotRulesApp);
@@ -255,9 +264,10 @@ if (useEmulator) {
       actorDeviceId: 'cleanup-revocation-smoke-client',
       targetDeviceId: 'revocation-smoke-target',
     });
+    const restartedBrowserAdapter = createFirebaseRemoteSyncAdapter(config);
     await assertRejects(
       () =>
-        browserAdapter.pushDocuments({
+        restartedBrowserAdapter.pushDocuments({
           datasetId: dataset.datasetId,
           deviceId: 'revocation-smoke-target',
           documents: [],
@@ -266,7 +276,7 @@ if (useEmulator) {
     );
     await assertRejects(
       () =>
-        browserAdapter.pullChanges({
+        restartedBrowserAdapter.pullChanges({
           datasetId: dataset.datasetId,
           deviceId: 'revocation-smoke-target',
           afterCursor: 0,
