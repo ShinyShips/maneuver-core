@@ -139,6 +139,10 @@ export async function loadScoutProfileSyncPayload(
   return __getRemoteSyncContractScoutProfile(scoutName);
 }
 
+export async function loadAllScoutProfileSyncPayloads(): Promise<ScoutProfileSyncPayload[]> {
+  return [...activeStore().values()].map(payload => structuredClone(payload));
+}
+
 export async function saveScoutProfileSyncPayload(
   payload: ScoutProfileSyncPayload
 ): Promise<void> {
@@ -182,6 +186,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import {
   createCanonicalDocumentIdentity,
   createInMemoryRemoteSyncAdapter,
+  createJoinDatasetInputFromConnection,
   createRemoteSyncConnection,
   createScoutingDataExport,
   createScopedOnlineExportSelection,
@@ -194,6 +199,7 @@ import {
   loadRemoteSyncQueue,
   loadScoutProfileQueue,
   parseDatasetCleanupProvisioningArtifact,
+  preparePostRejoinRecoveryBatch,
   readScopedOnlineScoutingEntries,
   resolveScoutNameCollision,
   reconcileScoutProfile,
@@ -203,6 +209,8 @@ import {
 } from '@/core/sync';
 import { inspectScoutNameCollision } from '@/core/sync/canonicalDocumentIdentity';
 import { reconcileCanonicalDocumentCandidate } from '@/core/sync/canonicalDocumentReconciliation';
+import { disconnectRemoteSyncDeviceIfRevoked } from '@/core/sync/remoteSyncRevocation';
+import { RemoteSyncDeviceRevokedError } from '@/core/sync/remoteSyncErrors';
 import {
   createScoutProfileSyncDocumentCandidate,
   type ScoutProfileSyncPayload,
@@ -218,6 +226,8 @@ import type { DatasetJoinArtifact } from '@/core/sync';
 import type { ScoutingEntryBase } from '@/core/types/scouting-entry';
 import { JoinedDatasetOverviewPanel } from '@/core/components/remote-sync/JoinedDatasetOverviewPanel';
 import { CleanupAuthorityPanel } from '@/core/components/remote-sync/CleanupAuthorityPanel';
+import { PostRejoinRecoveryPanel } from '@/core/components/remote-sync/PostRejoinRecoveryPanel';
+import { RejoinRecoveryReviewPanel } from '@/core/components/remote-sync/RejoinRecoveryReviewPanel';
 import { ScoutingExportScopePanel } from '@/core/components/data-transfer/ScoutingExportScopePanel';
 import {
   __getRemoteSyncContractScoutProfile,
@@ -1628,6 +1638,198 @@ async function runContract(): Promise<void> {
     __getRemoteSyncContractScoutProfile(revokedPeriodProfile.scout.name),
     revokedPeriodProfile,
     'revocation preserves local Scout profile data'
+  );
+  disconnectRemoteSyncDeviceIfRevoked(
+    new RemoteSyncDeviceRevokedError(
+      revokedLifecycleConnection.datasetId,
+      revokedLifecycleConnection.deviceId
+    ),
+    revokedLifecycleConnection
+  );
+
+  attachClient('revoked-lifecycle-client', artifact);
+  const rejoinedRecoveryConnection = loadRemoteSyncConnection();
+  assert.ok(rejoinedRecoveryConnection);
+  const rejoinedRecoveryDevice = await adapter.joinDataset(
+    createJoinDatasetInputFromConnection(rejoinedRecoveryConnection)
+  );
+  const afterDisconnectEntry = scoutingEntry({
+    id: '2026miket::qm78::3314::red',
+    matchKey: 'qm78',
+    matchNumber: 78,
+    timestamp: Date.now() + 1_000,
+  });
+  await saveScoutingEntry(afterDisconnectEntry);
+  const preparedRecovery = await preparePostRejoinRecoveryBatch();
+  assert.deepEqual(
+    preparedRecovery.documents.map(document => document.documentId).sort(),
+    [revokedPeriodEntry.id, afterDisconnectEntry.id, 'revoked local scout'].sort(),
+    'post-rejoin preparation combines discarded queued work with local changes made while disconnected'
+  );
+  const recoveryCanonicalProfile = {
+    ...existingScoutProfile,
+    scout: { ...existingScoutProfile.scout, name: 'Recovery Conflict Scout' },
+    predictions: existingScoutProfile.predictions.map(prediction => ({
+      ...prediction,
+      scoutName: 'Recovery Conflict Scout',
+    })),
+    achievements: [],
+  } satisfies ScoutProfileSyncPayload;
+  await adapter.pushDocuments({
+    datasetId: dataset.datasetId,
+    deviceId: joinedDeviceId,
+    documents: [createScoutProfileSyncDocumentCandidate(recoveryCanonicalProfile)],
+  });
+  const conflictingRecoveryProfile = {
+    ...recoveryCanonicalProfile,
+    predictions: recoveryCanonicalProfile.predictions.map(prediction => ({
+      ...prediction,
+      predictedWinner: 'blue' as const,
+    })),
+  } satisfies ScoutProfileSyncPayload;
+  const submittedRecoveryBatch = await adapter.submitRejoinRecoveryBatch({
+    datasetId: dataset.datasetId,
+    deviceId: rejoinedRecoveryDevice.deviceId,
+    revokedDeviceId: revokedLifecycleConnection.deviceId,
+    documents: [
+      {
+        documentId: revokedPeriodEntry.id,
+        documentType: 'match-scouting-entry',
+        scopeKey: revokedPeriodEntry.eventKey.toLowerCase(),
+        tombstone: false,
+        payload: revokedPeriodEntry,
+      },
+      createScoutProfileSyncDocumentCandidate(conflictingRecoveryProfile),
+    ],
+  });
+  assert.deepEqual(
+    {
+      revokedDeviceId: submittedRecoveryBatch.revokedDeviceId,
+      submittedByDeviceId: submittedRecoveryBatch.submittedByDeviceId,
+      status: submittedRecoveryBatch.status,
+      entryStatuses: submittedRecoveryBatch.entries.map(entry => entry.status),
+    },
+    {
+      revokedDeviceId: revokedLifecycleConnection.deviceId,
+      submittedByDeviceId: rejoinedRecoveryDevice.deviceId,
+      status: 'pending',
+      entryStatuses: ['pending', 'pending'],
+    },
+    'a normally rejoined device can submit revoked-period work as a separate review batch'
+  );
+  await assert.rejects(
+    () =>
+      adapter.listRejoinRecoveryBatches({
+        datasetId: dataset.datasetId,
+        deviceId: rejoinedRecoveryDevice.deviceId,
+      }),
+    /cleanup authority/,
+    'ordinary joined devices cannot inspect privileged rejoin recovery batches'
+  );
+  const pendingRecoveryBatches = await adapter.listRejoinRecoveryBatches({
+    datasetId: dataset.datasetId,
+    deviceId: joinedDeviceId,
+  });
+  assert.deepEqual(
+    pendingRecoveryBatches.map(batch => batch.batchId),
+    [submittedRecoveryBatch.batchId],
+    'a cleanup-capable device can inspect pending rejoin recovery batches'
+  );
+  const recoveryPreview = await adapter.previewRejoinRecoveryBatch({
+    datasetId: dataset.datasetId,
+    deviceId: joinedDeviceId,
+    batchId: submittedRecoveryBatch.batchId,
+  });
+  assert.deepEqual(
+    recoveryPreview.entries.map(entry => entry.previewStatus),
+    ['smart-merge', 'manual-conflict'],
+    'privileged review previews normal smart merge and escalates only specific conflicts'
+  );
+  const preparationMarkup = renderToStaticMarkup(
+    createElement(PostRejoinRecoveryPanel, {
+      prepared: preparedRecovery,
+      busy: false,
+      onSubmit: () => undefined,
+    })
+  );
+  assert.match(preparationMarkup, /3 recoverable local entries/);
+  assert.match(preparationMarkup, /Submit for privileged review/);
+  const reviewMarkup = renderToStaticMarkup(
+    createElement(RejoinRecoveryReviewPanel, {
+      batches: [submittedRecoveryBatch],
+      selectedBatchId: submittedRecoveryBatch.batchId,
+      preview: recoveryPreview,
+      busy: false,
+      onSelectBatch: () => undefined,
+      onDecision: () => undefined,
+      onReconsider: () => undefined,
+    })
+  );
+  assert.match(reviewMarkup, /Recovery batch review/);
+  assert.match(reviewMarkup, /Manual conflict/);
+  assert.match(reviewMarkup, /Use submitted/);
+  assert.match(reviewMarkup, /Hold entry/);
+  const partiallyApprovedRecovery = await adapter.reviewRejoinRecoveryBatch({
+    datasetId: dataset.datasetId,
+    deviceId: joinedDeviceId,
+    batchId: submittedRecoveryBatch.batchId,
+    decisions: [
+      {
+        entryId: submittedRecoveryBatch.entries[0]!.entryId,
+        action: 'approve',
+        resolution: 'smart-merge',
+      },
+    ],
+  });
+  assert.deepEqual(
+    {
+      status: partiallyApprovedRecovery.status,
+      entryStatuses: partiallyApprovedRecovery.entries.map(entry => entry.status),
+    },
+    {
+      status: 'partially-reviewed',
+      entryStatuses: ['imported', 'pending'],
+    },
+    'privileged review can approve only part of a recovery batch'
+  );
+  const heldRecovery = await adapter.reviewRejoinRecoveryBatch({
+    datasetId: dataset.datasetId,
+    deviceId: joinedDeviceId,
+    batchId: submittedRecoveryBatch.batchId,
+    decisions: [
+      {
+        entryId: submittedRecoveryBatch.entries[1]!.entryId,
+        action: 'reject',
+      },
+    ],
+  });
+  assert.deepEqual(
+    {
+      status: heldRecovery.status,
+      entryStatuses: heldRecovery.entries.map(entry => entry.status),
+    },
+    {
+      status: 'completed',
+      entryStatuses: ['imported', 'held'],
+    },
+    'rejected recovery entries move to a separate holding state'
+  );
+  const reconsideredRecovery = await adapter.reconsiderRejectedRejoinEntries({
+    datasetId: dataset.datasetId,
+    deviceId: joinedDeviceId,
+    batchId: submittedRecoveryBatch.batchId,
+    entryIds: [submittedRecoveryBatch.entries[1]!.entryId],
+  });
+  assert.deepEqual(
+    {
+      status: reconsideredRecovery.status,
+      entryStatuses: reconsideredRecovery.entries.map(entry => entry.status),
+    },
+    {
+      status: 'partially-reviewed',
+      entryStatuses: ['imported', 'pending'],
+    },
+    'held recovery entries can be reconsidered later'
   );
 
   const serverLocalRevocationTarget = await adapter.joinDataset({

@@ -32,6 +32,13 @@ export async function loadScoutProfileSyncPayload(
   };
 }
 
+export async function loadAllScoutProfileSyncPayloads(): Promise<ScoutProfileSyncPayload[]> {
+  const scouts = await gamificationDB.scouts.toArray();
+  return (
+    await Promise.all(scouts.map(scout => loadScoutProfileSyncPayload(scout.name)))
+  ).filter((payload): payload is ScoutProfileSyncPayload => payload !== undefined);
+}
+
 export async function saveScoutProfileSyncPayload(
   payload: ScoutProfileSyncPayload
 ): Promise<void> {

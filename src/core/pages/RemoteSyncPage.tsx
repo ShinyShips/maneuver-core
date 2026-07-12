@@ -27,6 +27,8 @@ import { Separator } from '@/core/components/ui/separator';
 import { Textarea } from '@/core/components/ui/textarea';
 import { JoinedDatasetOverviewPanel } from '@/core/components/remote-sync/JoinedDatasetOverviewPanel';
 import { CleanupAuthorityPanel } from '@/core/components/remote-sync/CleanupAuthorityPanel';
+import { PostRejoinRecoveryPanel } from '@/core/components/remote-sync/PostRejoinRecoveryPanel';
+import { RejoinRecoveryReviewPanel } from '@/core/components/remote-sync/RejoinRecoveryReviewPanel';
 import { useRemoteSyncConnection } from '@/core/hooks/useRemoteSyncConnection';
 import { useRemoteSyncQueueHealth } from '@/core/hooks/useRemoteSyncQueueHealth';
 import {
@@ -42,13 +44,20 @@ import {
 import { createRemoteSyncAdapterForConnection } from '@/core/sync/remoteSyncAdapterFactory';
 import {
   loadPendingScoutNameCollisions,
+  loadRejoinRecoveryContext,
   parseCleanupDocumentTargets,
   parseDatasetCleanupProvisioningArtifact,
   resolveScoutNameCollision,
+  preparePostRejoinRecoveryBatch,
+  submitPostRejoinRecoveryBatch,
   updateEventSyncScope,
   type DatasetJoinArtifact,
   type EventSyncScopeChangeResult,
   type JoinedDatasetOverview,
+  type PreparedPostRejoinRecoveryBatch,
+  type RejoinRecoveryBatch,
+  type RejoinRecoveryDecision,
+  type RejoinRecoveryPreview,
 } from '@/core/sync';
 
 export default function RemoteSyncPage() {
@@ -79,6 +88,14 @@ export default function RemoteSyncPage() {
   const [cleanupStatus, setCleanupStatus] = useState<string | null>(null);
   const [cleanupError, setCleanupError] = useState<string | null>(null);
   const [isCleanupBusy, setIsCleanupBusy] = useState(false);
+  const [preparedRecovery, setPreparedRecovery] =
+    useState<PreparedPostRejoinRecoveryBatch | null>(null);
+  const [recoveryBatches, setRecoveryBatches] = useState<RejoinRecoveryBatch[]>([]);
+  const [selectedRecoveryBatchId, setSelectedRecoveryBatchId] = useState('');
+  const [recoveryPreview, setRecoveryPreview] = useState<RejoinRecoveryPreview | null>(null);
+  const [recoveryStatus, setRecoveryStatus] = useState<string | null>(null);
+  const [recoveryError, setRecoveryError] = useState<string | null>(null);
+  const [isRecoveryBusy, setIsRecoveryBusy] = useState(false);
 
   const refreshDatasetOverview = useCallback(async () => {
     if (!connection) {
@@ -206,6 +223,123 @@ export default function RemoteSyncPage() {
     connection &&
       datasetOverview?.cleanupCapableDevices.some(device => device.deviceId === connection.deviceId)
   );
+
+  const refreshRecoveryReview = useCallback(async () => {
+    if (!connection || !cleanupCapable) {
+      setRecoveryBatches([]);
+      setRecoveryPreview(null);
+      setSelectedRecoveryBatchId('');
+      return;
+    }
+    const adapter = createRemoteSyncAdapterForConnection(connection);
+    const batches = await adapter.listRejoinRecoveryBatches({
+      datasetId: connection.datasetId,
+      deviceId: connection.deviceId,
+    });
+    setRecoveryBatches(batches);
+    const selectedBatchId = batches.some(batch => batch.batchId === selectedRecoveryBatchId)
+      ? selectedRecoveryBatchId
+      : (batches[0]?.batchId ?? '');
+    setSelectedRecoveryBatchId(selectedBatchId);
+    setRecoveryPreview(
+      selectedBatchId
+        ? await adapter.previewRejoinRecoveryBatch({
+            datasetId: connection.datasetId,
+            deviceId: connection.deviceId,
+            batchId: selectedBatchId,
+          })
+        : null
+    );
+  }, [cleanupCapable, connection, selectedRecoveryBatchId]);
+
+  useEffect(() => {
+    const context = loadRejoinRecoveryContext();
+    if (!connection || context?.datasetId !== connection.datasetId) {
+      setPreparedRecovery(null);
+      return;
+    }
+    void preparePostRejoinRecoveryBatch()
+      .then(setPreparedRecovery)
+      .catch(error =>
+        setRecoveryError(
+          error instanceof Error ? error.message : 'Local rejoin recovery could not be prepared.'
+        )
+      );
+  }, [connection]);
+
+  useEffect(() => {
+    void refreshRecoveryReview().catch(error =>
+      setRecoveryError(
+        error instanceof Error ? error.message : 'Recovery batches could not be loaded.'
+      )
+    );
+  }, [refreshRecoveryReview]);
+
+  const handleSubmitRecovery = async () => {
+    if (!connection) return;
+    setIsRecoveryBusy(true);
+    setRecoveryError(null);
+    try {
+      const batch = await submitPostRejoinRecoveryBatch(
+        createRemoteSyncAdapterForConnection(connection)
+      );
+      setPreparedRecovery(null);
+      setRecoveryStatus(
+        `Submitted ${batch.entries.length} local entr${batch.entries.length === 1 ? 'y' : 'ies'} for privileged review.`
+      );
+      await refreshRecoveryReview();
+    } catch (error) {
+      setRecoveryError(
+        error instanceof Error ? error.message : 'Local recovery batch could not be submitted.'
+      );
+    } finally {
+      setIsRecoveryBusy(false);
+    }
+  };
+
+  const handleRecoveryDecision = async (decision: RejoinRecoveryDecision) => {
+    if (!connection || !selectedRecoveryBatchId) return;
+    setIsRecoveryBusy(true);
+    setRecoveryError(null);
+    try {
+      await createRemoteSyncAdapterForConnection(connection).reviewRejoinRecoveryBatch({
+        datasetId: connection.datasetId,
+        deviceId: connection.deviceId,
+        batchId: selectedRecoveryBatchId,
+        decisions: [decision],
+      });
+      setRecoveryStatus('Recovery entry decision saved.');
+      await refreshRecoveryReview();
+    } catch (error) {
+      setRecoveryError(
+        error instanceof Error ? error.message : 'Recovery entry decision could not be saved.'
+      );
+    } finally {
+      setIsRecoveryBusy(false);
+    }
+  };
+
+  const handleRecoveryReconsideration = async (entryId: string) => {
+    if (!connection || !selectedRecoveryBatchId) return;
+    setIsRecoveryBusy(true);
+    setRecoveryError(null);
+    try {
+      await createRemoteSyncAdapterForConnection(connection).reconsiderRejectedRejoinEntries({
+        datasetId: connection.datasetId,
+        deviceId: connection.deviceId,
+        batchId: selectedRecoveryBatchId,
+        entryIds: [entryId],
+      });
+      setRecoveryStatus('Held recovery entry returned to pending review.');
+      await refreshRecoveryReview();
+    } catch (error) {
+      setRecoveryError(
+        error instanceof Error ? error.message : 'Held recovery entry could not be reconsidered.'
+      );
+    } finally {
+      setIsRecoveryBusy(false);
+    }
+  };
 
   const handleProvisionCleanupAuthority = async () => {
     if (!connection) {
@@ -369,6 +503,13 @@ export default function RemoteSyncPage() {
               onCollisionResolved={() => void handleSyncNow()}
               onDisconnect={() => void handleDisconnect()}
             />
+            {preparedRecovery && (
+              <PostRejoinRecoveryPanel
+                prepared={preparedRecovery}
+                busy={isRecoveryBusy}
+                onSubmit={() => void handleSubmitRecovery()}
+              />
+            )}
             {isOverviewLoading && !datasetOverview && (
               <Alert>
                 <AlertTitle>Loading dataset health</AlertTitle>
@@ -399,6 +540,29 @@ export default function RemoteSyncPage() {
               onCleanup={() => void handleReplicatedCleanup()}
               onRevokeDevice={() => void handleRevokeJoinedDevice()}
             />
+            {cleanupCapable && (
+              <RejoinRecoveryReviewPanel
+                batches={recoveryBatches}
+                selectedBatchId={selectedRecoveryBatchId}
+                preview={recoveryPreview}
+                busy={isRecoveryBusy}
+                onSelectBatch={setSelectedRecoveryBatchId}
+                onDecision={decision => void handleRecoveryDecision(decision)}
+                onReconsider={entryId => void handleRecoveryReconsideration(entryId)}
+              />
+            )}
+            {recoveryStatus && (
+              <Alert>
+                <AlertTitle>Recovery status</AlertTitle>
+                <AlertDescription>{recoveryStatus}</AlertDescription>
+              </Alert>
+            )}
+            {recoveryError && (
+              <Alert variant="destructive">
+                <AlertTitle>Recovery blocked</AlertTitle>
+                <AlertDescription>{recoveryError}</AlertDescription>
+              </Alert>
+            )}
             {cleanupStatus && (
               <Alert>
                 <AlertTitle>Cleanup status</AlertTitle>

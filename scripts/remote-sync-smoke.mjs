@@ -273,6 +273,89 @@ if (useEmulator) {
         }),
       /revoked/
     );
+    await browserAdapter.joinDataset({
+      artifact,
+      deviceId: 'rejoin-recovery-smoke-client',
+      deviceDisplayName: 'Rejoin recovery smoke client',
+    });
+    const recoveryBatch = await browserAdapter.submitRejoinRecoveryBatch({
+      datasetId: dataset.datasetId,
+      deviceId: 'rejoin-recovery-smoke-client',
+      revokedDeviceId: 'revocation-smoke-target',
+      documents: [
+        {
+          documentId: 'rejoin-recovery-smoke-entry-a',
+          documentType: 'match-scouting-entry',
+          scopeKey: '2026miket',
+          tombstone: false,
+          payload: { comments: 'recover a' },
+        },
+        {
+          documentId: 'rejoin-recovery-smoke-entry-b',
+          documentType: 'match-scouting-entry',
+          scopeKey: '2026miket',
+          tombstone: false,
+          payload: { comments: 'recover b' },
+        },
+      ],
+    });
+    await assertRejects(
+      () =>
+        browserAdapter.listRejoinRecoveryBatches({
+          datasetId: dataset.datasetId,
+          deviceId: 'rejoin-recovery-smoke-client',
+        }),
+      /cleanup authority/
+    );
+    const browserRecoveryBatches = await browserAdapter.listRejoinRecoveryBatches({
+      datasetId: dataset.datasetId,
+      deviceId: 'cleanup-revocation-smoke-client',
+    });
+    if (browserRecoveryBatches[0]?.batchId !== recoveryBatch.batchId) {
+      throw new Error('Firebase cleanup review could not list a submitted rejoin recovery batch.');
+    }
+    const recoveryPreview = await browserAdapter.previewRejoinRecoveryBatch({
+      datasetId: dataset.datasetId,
+      deviceId: 'cleanup-revocation-smoke-client',
+      batchId: recoveryBatch.batchId,
+    });
+    if (recoveryPreview.entries.some(entry => entry.previewStatus !== 'smart-merge')) {
+      throw new Error('Firebase rejoin recovery preview did not expose smart-merge candidates.');
+    }
+    const partialRecovery = await browserAdapter.reviewRejoinRecoveryBatch({
+      datasetId: dataset.datasetId,
+      deviceId: 'cleanup-revocation-smoke-client',
+      batchId: recoveryBatch.batchId,
+      decisions: [
+        {
+          entryId: recoveryBatch.entries[0].entryId,
+          action: 'approve',
+          resolution: 'smart-merge',
+        },
+        { entryId: recoveryBatch.entries[1].entryId, action: 'reject' },
+      ],
+    });
+    if (partialRecovery.status !== 'completed') {
+      throw new Error('Firebase rejoin recovery did not persist per-entry review decisions.');
+    }
+    const serverRecoveryBatches = await serverAdapter.listRejoinRecoveryBatchesServerLocal({
+      datasetId: dataset.datasetId,
+      actorDeviceId: 'server-local-smoke',
+      actorDisplayName: 'Server-local smoke',
+    });
+    if (serverRecoveryBatches[0]?.batchId !== recoveryBatch.batchId) {
+      throw new Error('Firebase server-local recovery authority could not list review batches.');
+    }
+    const reconsideredRecovery = await serverAdapter.reconsiderRejectedRejoinEntriesServerLocal({
+      datasetId: dataset.datasetId,
+      actorDeviceId: 'server-local-smoke',
+      actorDisplayName: 'Server-local smoke',
+      batchId: recoveryBatch.batchId,
+      entryIds: [recoveryBatch.entries[1].entryId],
+    });
+    if (reconsideredRecovery.entries[1]?.status !== 'pending') {
+      throw new Error('Firebase server-local recovery could not reconsider a held entry.');
+    }
     const expiringCleanupCredential = await serverAdapter.createCleanupCredential({
       datasetId: dataset.datasetId,
       operatorDeviceId: 'server-local-smoke',

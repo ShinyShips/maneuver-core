@@ -19,13 +19,22 @@ import type {
   DatasetJoinCredential,
   JoinDatasetInput,
   JoinedDeviceIdentity,
+  ListRejoinRecoveryBatchesInput,
+  ListRejoinRecoveryBatchesServerLocalInput,
   PullChangesInput,
   PullChangesResult,
   PortableDatasetSnapshot,
+  PreviewRejoinRecoveryBatchInput,
+  PreviewRejoinRecoveryBatchServerLocalInput,
   ProvisionCleanupAuthorityInput,
   PushDocumentsInput,
   PushDocumentsResult,
   RemoteSyncAdapter,
+  RejoinRecoveryBatch,
+  RejoinRecoveryDocumentCandidate,
+  RejoinRecoveryPreview,
+  ReconsiderRejectedRejoinEntriesInput,
+  ReconsiderRejectedRejoinEntriesServerLocalInput,
   ResetDatasetForRejoinServerLocalInput,
   RevokeJoinedDeviceInput,
   RevokeJoinedDeviceResult,
@@ -34,6 +43,9 @@ import type {
   ServerLocalCleanupCanonicalDocumentsInput,
   ServerLocalRevokeJoinedDeviceInput,
   ServerLocalRestoreResult,
+  ReviewRejoinRecoveryBatchInput,
+  ReviewRejoinRecoveryBatchServerLocalInput,
+  SubmitRejoinRecoveryBatchInput,
   SharedRestoreEvent,
   TeamDataset,
 } from '../types';
@@ -56,6 +68,13 @@ import {
   type CleanupCapabilityProjection,
 } from '../datasetOverview';
 import { RemoteSyncDeviceNotJoinedError, RemoteSyncDeviceRevokedError } from '../remoteSyncErrors';
+import {
+  applyRejoinRecoveryDecision,
+  getPendingRejoinRecoveryEntry,
+  planRejoinRecoveryDecision,
+  previewRejoinRecoveryEntry,
+  reconsiderHeldRejoinRecoveryEntries,
+} from '../rejoinRecoveryModel';
 
 const SYNC_AUTHORITY_DEVICE_ID = 'maneuver-sync-authority';
 
@@ -70,6 +89,7 @@ interface InMemoryDatasetState {
   sharedRestoreEvents: SharedRestoreEvent[];
   sharedCleanupEvents: CleanupDatasetEventRecord[];
   snapshots: Map<string, PortableDatasetSnapshot>;
+  rejoinRecoveryBatches: Map<string, RejoinRecoveryBatch>;
   cursor: number;
 }
 
@@ -106,6 +126,7 @@ class InMemoryRemoteSyncAdapter implements RemoteSyncAdapter {
       sharedRestoreEvents: [],
       sharedCleanupEvents: [],
       snapshots: new Map(),
+      rejoinRecoveryBatches: new Map(),
       cursor: 0,
     });
 
@@ -365,6 +386,7 @@ class InMemoryRemoteSyncAdapter implements RemoteSyncAdapter {
         sharedRestoreEvents: [],
         sharedCleanupEvents: [],
         snapshots: new Map(),
+        rejoinRecoveryBatches: new Map(),
         cursor: 0,
       };
       this.datasets.set(input.datasetId, state);
@@ -603,6 +625,118 @@ class InMemoryRemoteSyncAdapter implements RemoteSyncAdapter {
     };
   }
 
+  async submitRejoinRecoveryBatch<TPayload = unknown>(
+    input: SubmitRejoinRecoveryBatchInput<TPayload>
+  ): Promise<RejoinRecoveryBatch<TPayload>> {
+    const dataset = this.requireDataset(input.datasetId);
+    const submittingDevice = dataset.devices.get(input.deviceId);
+    if (!submittingDevice || submittingDevice.revokedAt) {
+      throw new Error(`Remote sync device is not joined to dataset ${input.datasetId}.`);
+    }
+    const revokedDevice = dataset.devices.get(input.revokedDeviceId);
+    if (!revokedDevice?.revokedAt) {
+      throw new Error('Rejoin recovery requires a formerly revoked device.');
+    }
+    if (input.documents.length === 0) {
+      throw new Error('Rejoin recovery batch must contain at least one document.');
+    }
+
+    const batch: RejoinRecoveryBatch<TPayload> = {
+      batchId: crypto.randomUUID(),
+      datasetId: input.datasetId,
+      revokedDeviceId: input.revokedDeviceId,
+      submittedByDeviceId: input.deviceId,
+      submittedAt: Date.now(),
+      status: 'pending',
+      entries: input.documents.map(document => ({
+        entryId: crypto.randomUUID(),
+        status: 'pending',
+        document: structuredClone(document),
+      })),
+    };
+    dataset.rejoinRecoveryBatches.set(batch.batchId, batch as RejoinRecoveryBatch);
+    return structuredClone(batch);
+  }
+
+  async listRejoinRecoveryBatches(
+    input: ListRejoinRecoveryBatchesInput
+  ): Promise<RejoinRecoveryBatch[]> {
+    const dataset = this.requireDataset(input.datasetId);
+    this.requireCleanupCapableDevice(dataset, input.deviceId);
+    return [...dataset.rejoinRecoveryBatches.values()]
+      .sort((left, right) => left.submittedAt - right.submittedAt)
+      .map(batch => structuredClone(batch));
+  }
+
+  async previewRejoinRecoveryBatch<TPayload = unknown>(
+    input: PreviewRejoinRecoveryBatchInput
+  ): Promise<RejoinRecoveryPreview<TPayload>> {
+    const dataset = this.requireDataset(input.datasetId);
+    this.requireCleanupCapableDevice(dataset, input.deviceId);
+    const batch = this.requireRejoinRecoveryBatch(dataset, input.batchId) as RejoinRecoveryBatch<TPayload>;
+    return this.createRejoinRecoveryPreview(dataset, batch);
+  }
+
+  async reviewRejoinRecoveryBatch(
+    input: ReviewRejoinRecoveryBatchInput
+  ): Promise<RejoinRecoveryBatch> {
+    const dataset = this.requireDataset(input.datasetId);
+    this.requireCleanupCapableDevice(dataset, input.deviceId);
+    return this.applyRejoinRecoveryReview(
+      dataset,
+      input.datasetId,
+      input.deviceId,
+      input.batchId,
+      input.decisions
+    );
+  }
+
+  async reconsiderRejectedRejoinEntries(
+    input: ReconsiderRejectedRejoinEntriesInput
+  ): Promise<RejoinRecoveryBatch> {
+    const dataset = this.requireDataset(input.datasetId);
+    this.requireCleanupCapableDevice(dataset, input.deviceId);
+    return this.applyRejoinRecoveryReconsideration(dataset, input.batchId, input.entryIds);
+  }
+
+  async listRejoinRecoveryBatchesServerLocal(
+    input: ListRejoinRecoveryBatchesServerLocalInput
+  ): Promise<RejoinRecoveryBatch[]> {
+    return [...this.requireDataset(input.datasetId).rejoinRecoveryBatches.values()].map(batch =>
+      structuredClone(batch)
+    );
+  }
+
+  async previewRejoinRecoveryBatchServerLocal<TPayload = unknown>(
+    input: PreviewRejoinRecoveryBatchServerLocalInput
+  ): Promise<RejoinRecoveryPreview<TPayload>> {
+    const dataset = this.requireDataset(input.datasetId);
+    return this.createRejoinRecoveryPreview(
+      dataset,
+      this.requireRejoinRecoveryBatch(dataset, input.batchId) as RejoinRecoveryBatch<TPayload>
+    );
+  }
+
+  async reviewRejoinRecoveryBatchServerLocal(
+    input: ReviewRejoinRecoveryBatchServerLocalInput
+  ): Promise<RejoinRecoveryBatch> {
+    const dataset = this.requireDataset(input.datasetId);
+    return this.applyRejoinRecoveryReview(
+      dataset,
+      input.datasetId,
+      input.actorDeviceId,
+      input.batchId,
+      input.decisions
+    );
+  }
+
+  async reconsiderRejectedRejoinEntriesServerLocal(
+    input: ReconsiderRejectedRejoinEntriesServerLocalInput
+  ): Promise<RejoinRecoveryBatch> {
+    const dataset = this.requireDataset(input.datasetId);
+    return this.applyRejoinRecoveryReconsideration(dataset, input.batchId, input.entryIds);
+  }
+
   async pullChanges<TPayload = unknown>(
     input: PullChangesInput
   ): Promise<PullChangesResult<TPayload>> {
@@ -704,4 +838,125 @@ class InMemoryRemoteSyncAdapter implements RemoteSyncAdapter {
     }
     return { device: structuredClone(revokedDevice) };
   }
+
+  private requireCleanupCapableDevice(
+    dataset: InMemoryDatasetState,
+    deviceId: string
+  ): JoinedDeviceIdentity {
+    const device = dataset.devices.get(deviceId);
+    const hasCleanupAuthority = [...dataset.cleanupCapabilities.values()].some(
+      capability =>
+        capability.deviceId === deviceId &&
+        !capability.revokedAt &&
+        (!capability.expiresAt || capability.expiresAt > Date.now())
+    );
+    if (!device || device.revokedAt || !hasCleanupAuthority) {
+      throw new Error(`Remote sync device ${deviceId} does not have cleanup authority.`);
+    }
+    return device;
+  }
+
+  private requireRejoinRecoveryBatch(
+    dataset: InMemoryDatasetState,
+    batchId: string
+  ): RejoinRecoveryBatch {
+    const batch = dataset.rejoinRecoveryBatches.get(batchId);
+    if (!batch) {
+      throw new Error(`Rejoin recovery batch not found: ${batchId}`);
+    }
+    return batch;
+  }
+
+  private createRejoinRecoveryPreview<TPayload>(
+    dataset: InMemoryDatasetState,
+    batch: RejoinRecoveryBatch<TPayload>
+  ): RejoinRecoveryPreview<TPayload> {
+    return {
+      batch: structuredClone(batch),
+      entries: batch.entries.map(entry => {
+        const existing = dataset.currentDocuments.get(
+          createCanonicalDocumentKey(entry.document.documentType, entry.document.documentId)
+        ) as CanonicalSyncDocument<TPayload> | undefined;
+        return structuredClone(previewRejoinRecoveryEntry(existing, entry));
+      }),
+    };
+  }
+
+  private commitRejoinRecoveryDocument(
+    dataset: InMemoryDatasetState,
+    datasetId: string,
+    actorDeviceId: string,
+    documentCandidate: RejoinRecoveryDocumentCandidate
+  ): void {
+    const key = createCanonicalDocumentKey(
+      documentCandidate.documentType,
+      documentCandidate.documentId
+    );
+    const existing = dataset.currentDocuments.get(key);
+    const committedDocument: CanonicalSyncDocument = {
+      ...documentCandidate,
+      datasetId,
+      revision: (existing?.revision ?? 0) + 1,
+      updatedAt: Date.now(),
+      updatedByDeviceId: actorDeviceId,
+    };
+    dataset.cursor += 1;
+    dataset.currentDocuments.set(key, committedDocument);
+    dataset.changes.push({
+      datasetId,
+      cursor: dataset.cursor,
+      documentId: committedDocument.documentId,
+      documentType: committedDocument.documentType,
+      revision: committedDocument.revision,
+      changedAt: committedDocument.updatedAt,
+      operation: committedDocument.tombstone ? 'tombstone' : 'upsert',
+      document: committedDocument,
+    });
+  }
+
+  private applyRejoinRecoveryReview(
+    dataset: InMemoryDatasetState,
+    datasetId: string,
+    actorDeviceId: string,
+    batchId: string,
+    decisions: ReviewRejoinRecoveryBatchInput['decisions']
+  ): RejoinRecoveryBatch {
+    const batch = this.requireRejoinRecoveryBatch(dataset, batchId);
+    for (const decision of decisions) {
+      const entry = getPendingRejoinRecoveryEntry(batch, decision.entryId);
+      const existing =
+        decision.action === 'approve'
+          ? dataset.currentDocuments.get(
+              createCanonicalDocumentKey(
+                entry.document.documentType,
+                entry.document.documentId
+              )
+            )
+          : undefined;
+      const plan = planRejoinRecoveryDecision(entry, decision, existing);
+      if (plan.documentCandidate) {
+        this.commitRejoinRecoveryDocument(
+          dataset,
+          datasetId,
+          actorDeviceId,
+          plan.documentCandidate
+        );
+      }
+      applyRejoinRecoveryDecision(batch, entry, plan.nextStatus);
+    }
+    dataset.rejoinRecoveryBatches.set(batch.batchId, batch);
+    return structuredClone(batch);
+  }
+
+  private applyRejoinRecoveryReconsideration(
+    dataset: InMemoryDatasetState,
+    batchId: string,
+    entryIds: string[]
+  ): RejoinRecoveryBatch {
+    const batch = this.requireRejoinRecoveryBatch(dataset, batchId);
+    reconsiderHeldRejoinRecoveryEntries(batch, entryIds);
+    dataset.rejoinRecoveryBatches.set(batch.batchId, batch);
+    return structuredClone(batch);
+  }
+
 }

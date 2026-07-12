@@ -3,6 +3,7 @@ import { clearRemoteSyncConnection, loadRemoteSyncConnection } from './remoteSyn
 import { RemoteSyncDeviceRevokedError } from './remoteSyncErrors';
 import { discardRemoteSyncQueueForDevice } from './remoteSyncQueue';
 import { discardScoutProfileQueueForDevice } from './scoutProfileQueue';
+import { captureRejoinRecoveryContext } from './rejoinRecoveryPreparation';
 
 export function disconnectRemoteSyncDeviceIfRevoked(
   error: unknown,
@@ -12,6 +13,7 @@ export function disconnectRemoteSyncDeviceIfRevoked(
     return false;
   }
 
+  captureRejoinRecoveryContext(connection);
   discardRemoteSyncQueueForDevice(connection.datasetId, connection.deviceId);
   discardScoutProfileQueueForDevice(connection.datasetId, connection.deviceId);
   const currentConnection = loadRemoteSyncConnection();

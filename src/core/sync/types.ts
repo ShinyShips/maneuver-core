@@ -371,6 +371,101 @@ export interface PullChangesResult<TPayload = unknown> {
   hasMore: boolean;
 }
 
+export type RejoinRecoveryBatchStatus = 'pending' | 'partially-reviewed' | 'completed';
+
+export type RejoinRecoveryEntryStatus = 'pending' | 'imported' | 'held';
+
+export type RejoinRecoveryDocumentCandidate<TPayload = unknown> = Omit<
+  CanonicalSyncDocument<TPayload>,
+  'datasetId' | 'revision' | 'updatedAt' | 'updatedByDeviceId'
+>;
+
+export interface RejoinRecoveryEntry<TPayload = unknown> {
+  entryId: string;
+  status: RejoinRecoveryEntryStatus;
+  document: RejoinRecoveryDocumentCandidate<TPayload>;
+}
+
+export interface RejoinRecoveryBatch<TPayload = unknown> {
+  batchId: string;
+  datasetId: string;
+  revokedDeviceId: string;
+  submittedByDeviceId: string;
+  submittedAt: number;
+  status: RejoinRecoveryBatchStatus;
+  entries: RejoinRecoveryEntry<TPayload>[];
+}
+
+export interface SubmitRejoinRecoveryBatchInput<TPayload = unknown> {
+  datasetId: string;
+  deviceId: string;
+  revokedDeviceId: string;
+  documents: RejoinRecoveryDocumentCandidate<TPayload>[];
+}
+
+export interface ListRejoinRecoveryBatchesInput {
+  datasetId: string;
+  deviceId: string;
+}
+
+export type RejoinRecoveryPreviewStatus = 'smart-merge' | 'no-change' | 'manual-conflict';
+
+export interface RejoinRecoveryPreviewEntry<TPayload = unknown> {
+  entry: RejoinRecoveryEntry<TPayload>;
+  previewStatus: RejoinRecoveryPreviewStatus;
+  canonicalDocument?: CanonicalSyncDocument<TPayload>;
+  proposedDocument?: RejoinRecoveryDocumentCandidate<TPayload>;
+  conflictKey?: string;
+  conflictReason?: string;
+}
+
+export interface RejoinRecoveryPreview<TPayload = unknown> {
+  batch: RejoinRecoveryBatch<TPayload>;
+  entries: RejoinRecoveryPreviewEntry<TPayload>[];
+}
+
+export interface PreviewRejoinRecoveryBatchInput extends ListRejoinRecoveryBatchesInput {
+  batchId: string;
+}
+
+export type RejoinRecoveryDecision =
+  | {
+      entryId: string;
+      action: 'approve';
+      resolution: 'smart-merge' | 'use-submitted';
+    }
+  | {
+      entryId: string;
+      action: 'reject';
+    };
+
+export interface ReviewRejoinRecoveryBatchInput extends PreviewRejoinRecoveryBatchInput {
+  decisions: RejoinRecoveryDecision[];
+}
+
+export interface ReconsiderRejectedRejoinEntriesInput extends PreviewRejoinRecoveryBatchInput {
+  entryIds: string[];
+}
+
+export interface ListRejoinRecoveryBatchesServerLocalInput extends DatasetActorIdentity {
+  datasetId: string;
+}
+
+export interface PreviewRejoinRecoveryBatchServerLocalInput
+  extends ListRejoinRecoveryBatchesServerLocalInput {
+  batchId: string;
+}
+
+export interface ReviewRejoinRecoveryBatchServerLocalInput
+  extends PreviewRejoinRecoveryBatchServerLocalInput {
+  decisions: RejoinRecoveryDecision[];
+}
+
+export interface ReconsiderRejectedRejoinEntriesServerLocalInput
+  extends PreviewRejoinRecoveryBatchServerLocalInput {
+  entryIds: string[];
+}
+
 export interface RemoteSyncClientAdapter {
   joinDataset(input: JoinDatasetInput): Promise<JoinedDeviceIdentity>;
   provisionCleanupAuthority(input: ProvisionCleanupAuthorityInput): Promise<CleanupAuthorityGrant>;
@@ -383,6 +478,21 @@ export interface RemoteSyncClientAdapter {
     input: PushDocumentsInput<TPayload>
   ): Promise<PushDocumentsResult<TPayload>>;
   pullChanges<TPayload = unknown>(input: PullChangesInput): Promise<PullChangesResult<TPayload>>;
+  submitRejoinRecoveryBatch<TPayload = unknown>(
+    input: SubmitRejoinRecoveryBatchInput<TPayload>
+  ): Promise<RejoinRecoveryBatch<TPayload>>;
+  listRejoinRecoveryBatches(
+    input: ListRejoinRecoveryBatchesInput
+  ): Promise<RejoinRecoveryBatch[]>;
+  previewRejoinRecoveryBatch<TPayload = unknown>(
+    input: PreviewRejoinRecoveryBatchInput
+  ): Promise<RejoinRecoveryPreview<TPayload>>;
+  reviewRejoinRecoveryBatch(
+    input: ReviewRejoinRecoveryBatchInput
+  ): Promise<RejoinRecoveryBatch>;
+  reconsiderRejectedRejoinEntries(
+    input: ReconsiderRejectedRejoinEntriesInput
+  ): Promise<RejoinRecoveryBatch>;
   getDatasetHealth(datasetId: string): Promise<DatasetHealth>;
   getJoinedDatasetOverview(input: GetJoinedDatasetOverviewInput): Promise<JoinedDatasetOverview>;
 }
@@ -402,6 +512,18 @@ export interface RemoteSyncAdminAdapter {
   resetDatasetForRejoinServerLocal(
     input: ResetDatasetForRejoinServerLocalInput
   ): Promise<GlobalRejoinResetResult>;
+  listRejoinRecoveryBatchesServerLocal(
+    input: ListRejoinRecoveryBatchesServerLocalInput
+  ): Promise<RejoinRecoveryBatch[]>;
+  previewRejoinRecoveryBatchServerLocal<TPayload = unknown>(
+    input: PreviewRejoinRecoveryBatchServerLocalInput
+  ): Promise<RejoinRecoveryPreview<TPayload>>;
+  reviewRejoinRecoveryBatchServerLocal(
+    input: ReviewRejoinRecoveryBatchServerLocalInput
+  ): Promise<RejoinRecoveryBatch>;
+  reconsiderRejectedRejoinEntriesServerLocal(
+    input: ReconsiderRejectedRejoinEntriesServerLocalInput
+  ): Promise<RejoinRecoveryBatch>;
   createPortableDatasetSnapshotServerLocal(
     input: CreatePortableDatasetSnapshotServerLocalInput
   ): Promise<PortableDatasetSnapshot>;

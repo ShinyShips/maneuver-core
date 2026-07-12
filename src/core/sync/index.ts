@@ -32,6 +32,24 @@ export type {
   GlobalRejoinResetResult,
   PullChangesInput,
   PullChangesResult,
+  RejoinRecoveryBatch,
+  RejoinRecoveryBatchStatus,
+  RejoinRecoveryDocumentCandidate,
+  RejoinRecoveryEntry,
+  RejoinRecoveryEntryStatus,
+  RejoinRecoveryPreview,
+  RejoinRecoveryPreviewEntry,
+  RejoinRecoveryPreviewStatus,
+  RejoinRecoveryDecision,
+  PreviewRejoinRecoveryBatchInput,
+  ReviewRejoinRecoveryBatchInput,
+  ReconsiderRejectedRejoinEntriesInput,
+  ReconsiderRejectedRejoinEntriesServerLocalInput,
+  ListRejoinRecoveryBatchesInput,
+  ListRejoinRecoveryBatchesServerLocalInput,
+  PreviewRejoinRecoveryBatchServerLocalInput,
+  ReviewRejoinRecoveryBatchServerLocalInput,
+  SubmitRejoinRecoveryBatchInput,
   PortableDatasetSnapshot,
   ProvisionCleanupAuthorityInput,
   PushDocumentsInput,
@@ -91,6 +109,11 @@ export {
 } from './scoutNameCollision';
 export { readJoinedDatasetOverview, syncScoutingEntries } from './remoteSyncEngine';
 export {
+  loadRejoinRecoveryContext,
+  preparePostRejoinRecoveryBatch,
+  submitPostRejoinRecoveryBatch,
+} from './rejoinRecoveryPreparation';
+export {
   createScoutProfileSyncDocumentCandidate,
   reconcileScoutProfile,
 } from './scoutProfileDocuments';
@@ -129,6 +152,10 @@ export type {
   ResolveScoutNameCollisionInput,
 } from './scoutNameCollision';
 export type { RemoteSyncRunResult } from './remoteSyncEngine';
+export type {
+  PreparedPostRejoinRecoveryBatch,
+  RevokedDeviceRecoveryContext,
+} from './rejoinRecoveryPreparation';
 export { RemoteSyncDeviceNotJoinedError, RemoteSyncDeviceRevokedError } from './remoteSyncErrors';
 export type {
   ScoutProfileReconciliation,

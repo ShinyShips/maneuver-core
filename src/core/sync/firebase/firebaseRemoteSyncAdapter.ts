@@ -40,14 +40,22 @@ import type {
   DatasetJoinCredential,
   JoinDatasetInput,
   JoinedDeviceIdentity,
+  ListRejoinRecoveryBatchesInput,
+  ListRejoinRecoveryBatchesServerLocalInput,
   PullChangesInput,
   PullChangesResult,
   PortableDatasetSnapshot,
+  PreviewRejoinRecoveryBatchInput,
+  PreviewRejoinRecoveryBatchServerLocalInput,
   PushDocumentsInput,
   PushDocumentsResult,
   ProvisionCleanupAuthorityInput,
   RemoteSyncAdminAdapter,
   RemoteSyncAdapter,
+  RejoinRecoveryBatch,
+  RejoinRecoveryPreview,
+  ReconsiderRejectedRejoinEntriesInput,
+  ReconsiderRejectedRejoinEntriesServerLocalInput,
   ResetDatasetForRejoinServerLocalInput,
   RevokeJoinedDeviceInput,
   RevokeJoinedDeviceResult,
@@ -56,6 +64,9 @@ import type {
   ServerLocalCleanupCanonicalDocumentsInput,
   ServerLocalRevokeJoinedDeviceInput,
   ServerLocalRestoreResult,
+  ReviewRejoinRecoveryBatchInput,
+  ReviewRejoinRecoveryBatchServerLocalInput,
+  SubmitRejoinRecoveryBatchInput,
   SharedRestoreEvent,
   TeamDataset,
 } from '../types';
@@ -79,6 +90,13 @@ import {
   type CleanupCapabilityProjection,
 } from '../datasetOverview';
 import { RemoteSyncDeviceNotJoinedError, RemoteSyncDeviceRevokedError } from '../remoteSyncErrors';
+import {
+  applyRejoinRecoveryDecision,
+  getPendingRejoinRecoveryEntry,
+  planRejoinRecoveryDecision,
+  previewRejoinRecoveryEntry,
+  reconsiderHeldRejoinRecoveryEntries,
+} from '../rejoinRecoveryModel';
 import type { FirebaseRemoteSyncConfig } from './remoteSyncFirebaseConfig';
 import type { ServerLocalSnapshotStore } from './serverLocalSnapshotStore';
 
@@ -103,6 +121,7 @@ const EVENTS = 'dataset_events';
 const PUBLIC_CLEANUP_DEVICES = 'public_cleanup_devices';
 const SHARED_RESTORE_EVENTS = 'shared_restore_events';
 const SHARED_CLEANUP_EVENTS = 'shared_cleanup_events';
+const REJOIN_RECOVERY_BATCHES = 'rejoin_recovery_batches';
 const METADATA = 'metadata';
 const CURSOR = 'cursor';
 const RESTORE_LOCK = 'restore_lock';
@@ -945,6 +964,115 @@ class FirebaseRemoteSyncAdapter implements RemoteSyncAdapter {
     });
   }
 
+  async submitRejoinRecoveryBatch<TPayload = unknown>(
+    input: SubmitRejoinRecoveryBatchInput<TPayload>
+  ): Promise<RejoinRecoveryBatch<TPayload>> {
+    if (input.documents.length === 0) {
+      throw new Error('Rejoin recovery batch must contain at least one document.');
+    }
+    const batch: RejoinRecoveryBatch<TPayload> = {
+      batchId: crypto.randomUUID(),
+      datasetId: input.datasetId,
+      revokedDeviceId: input.revokedDeviceId,
+      submittedByDeviceId: input.deviceId,
+      submittedAt: Date.now(),
+      status: 'pending',
+      entries: input.documents.map(document => ({
+        entryId: crypto.randomUUID(),
+        status: 'pending',
+        document,
+      })),
+    };
+    await runTransaction(this.firestore, async transaction => {
+      const [submittingDeviceSnapshot, revokedDeviceSnapshot] = await Promise.all([
+        transaction.get(deviceRef(this.firestore, input.datasetId, input.deviceId)),
+        transaction.get(deviceRef(this.firestore, input.datasetId, input.revokedDeviceId)),
+      ]);
+      await this.assertRemoteSyncMutationUnlocked(transaction, input.datasetId);
+      assertJoinedDeviceSnapshot(submittingDeviceSnapshot, input.datasetId, input.deviceId);
+      const revokedDevice = revokedDeviceSnapshot.data() as JoinedDeviceIdentity | undefined;
+      if (!revokedDeviceSnapshot.exists() || !revokedDevice?.revokedAt) {
+        throw new Error('Rejoin recovery requires a formerly revoked device.');
+      }
+      transaction.set(rejoinRecoveryBatchRef(this.firestore, input.datasetId, batch.batchId), batch);
+    });
+    return batch;
+  }
+
+  async listRejoinRecoveryBatches(
+    input: ListRejoinRecoveryBatchesInput
+  ): Promise<RejoinRecoveryBatch[]> {
+    await this.assertCleanupCapableDevice(input.datasetId, input.deviceId);
+    return this.loadRejoinRecoveryBatches(input.datasetId);
+  }
+
+  async previewRejoinRecoveryBatch<TPayload = unknown>(
+    input: PreviewRejoinRecoveryBatchInput
+  ): Promise<RejoinRecoveryPreview<TPayload>> {
+    await this.assertCleanupCapableDevice(input.datasetId, input.deviceId);
+    return this.loadRejoinRecoveryPreview<TPayload>(input.datasetId, input.batchId);
+  }
+
+  async reviewRejoinRecoveryBatch(
+    input: ReviewRejoinRecoveryBatchInput
+  ): Promise<RejoinRecoveryBatch> {
+    await this.assertCleanupCapableDevice(input.datasetId, input.deviceId);
+    return this.commitRejoinRecoveryReview(
+      input.datasetId,
+      input.deviceId,
+      input.batchId,
+      input.decisions
+    );
+  }
+
+  async reconsiderRejectedRejoinEntries(
+    input: ReconsiderRejectedRejoinEntriesInput
+  ): Promise<RejoinRecoveryBatch> {
+    await this.assertCleanupCapableDevice(input.datasetId, input.deviceId);
+    return this.commitRejoinRecoveryReconsideration(
+      input.datasetId,
+      input.batchId,
+      input.entryIds
+    );
+  }
+
+  async listRejoinRecoveryBatchesServerLocal(
+    input: ListRejoinRecoveryBatchesServerLocalInput
+  ): Promise<RejoinRecoveryBatch[]> {
+    this.requireServerLocalCapability('Server-local rejoin recovery review');
+    return this.loadRejoinRecoveryBatches(input.datasetId);
+  }
+
+  async previewRejoinRecoveryBatchServerLocal<TPayload = unknown>(
+    input: PreviewRejoinRecoveryBatchServerLocalInput
+  ): Promise<RejoinRecoveryPreview<TPayload>> {
+    this.requireServerLocalCapability('Server-local rejoin recovery review');
+    return this.loadRejoinRecoveryPreview<TPayload>(input.datasetId, input.batchId);
+  }
+
+  async reviewRejoinRecoveryBatchServerLocal(
+    input: ReviewRejoinRecoveryBatchServerLocalInput
+  ): Promise<RejoinRecoveryBatch> {
+    this.requireServerLocalCapability('Server-local rejoin recovery review');
+    return this.commitRejoinRecoveryReview(
+      input.datasetId,
+      input.actorDeviceId,
+      input.batchId,
+      input.decisions
+    );
+  }
+
+  async reconsiderRejectedRejoinEntriesServerLocal(
+    input: ReconsiderRejectedRejoinEntriesServerLocalInput
+  ): Promise<RejoinRecoveryBatch> {
+    this.requireServerLocalCapability('Server-local rejoin recovery review');
+    return this.commitRejoinRecoveryReconsideration(
+      input.datasetId,
+      input.batchId,
+      input.entryIds
+    );
+  }
+
   async pullChanges<TPayload = unknown>(
     input: PullChangesInput
   ): Promise<PullChangesResult<TPayload>> {
@@ -1073,6 +1201,148 @@ class FirebaseRemoteSyncAdapter implements RemoteSyncAdapter {
     };
   }
 
+  private async assertCleanupCapableDevice(
+    datasetId: string,
+    deviceId: string
+  ): Promise<JoinedDeviceIdentity> {
+    const device = await assertJoinedDevice(this.firestore, datasetId, deviceId);
+    const capabilitySnapshot = await getDoc(
+      publicCleanupDeviceRef(this.firestore, datasetId, deviceId)
+    );
+    const capability = capabilitySnapshot.data() as CleanupCapabilityProjection | undefined;
+    if (!capability || (capability.expiresAt !== undefined && capability.expiresAt <= Date.now())) {
+      throw new Error(`Remote sync device ${deviceId} does not have cleanup authority.`);
+    }
+    return device;
+  }
+
+  private async loadRejoinRecoveryBatches(datasetId: string): Promise<RejoinRecoveryBatch[]> {
+    const snapshot = await getDocs(
+      collection(datasetRef(this.firestore, datasetId), REJOIN_RECOVERY_BATCHES)
+    );
+    return snapshot.docs
+      .map(documentSnapshot => documentSnapshot.data() as RejoinRecoveryBatch)
+      .sort((left, right) => left.submittedAt - right.submittedAt);
+  }
+
+  private async loadRejoinRecoveryPreview<TPayload>(
+    datasetId: string,
+    batchId: string
+  ): Promise<RejoinRecoveryPreview<TPayload>> {
+    const batchSnapshot = await getDoc(rejoinRecoveryBatchRef(this.firestore, datasetId, batchId));
+    if (!batchSnapshot.exists()) throw new Error(`Rejoin recovery batch not found: ${batchId}`);
+    const batch = batchSnapshot.data() as RejoinRecoveryBatch<TPayload>;
+    const canonicalSnapshots = await Promise.all(
+      batch.entries.map(entry =>
+        getDoc(
+          canonicalDocumentRef(
+            this.firestore,
+            datasetId,
+            entry.document.documentType,
+            entry.document.documentId
+          )
+        )
+      )
+    );
+    return {
+      batch,
+      entries: batch.entries.map((entry, index) => {
+        const existing = canonicalSnapshots[index]?.data() as
+          | CanonicalSyncDocument<TPayload>
+          | undefined;
+        return previewRejoinRecoveryEntry(existing, entry);
+      }),
+    };
+  }
+
+  private async commitRejoinRecoveryReview(
+    datasetId: string,
+    actorDeviceId: string,
+    batchId: string,
+    decisions: ReviewRejoinRecoveryBatchInput['decisions']
+  ): Promise<RejoinRecoveryBatch> {
+    return runTransaction(this.firestore, async transaction => {
+      await this.assertRemoteSyncMutationUnlocked(transaction, datasetId);
+      const batchReference = rejoinRecoveryBatchRef(this.firestore, datasetId, batchId);
+      const batchSnapshot = await transaction.get(batchReference);
+      if (!batchSnapshot.exists()) throw new Error(`Rejoin recovery batch not found: ${batchId}`);
+      const recoveryBatch = batchSnapshot.data() as RejoinRecoveryBatch;
+      const approvedDecisions = decisions.filter(decision => decision.action === 'approve');
+      const approvedEntries = approvedDecisions.map(decision =>
+        getPendingRejoinRecoveryEntry(recoveryBatch, decision.entryId)
+      );
+      const documentReferences = approvedEntries.map(entry =>
+        canonicalDocumentRef(
+          this.firestore,
+          datasetId,
+          entry.document.documentType,
+          entry.document.documentId
+        )
+      );
+      const canonicalSnapshots = [];
+      for (const reference of documentReferences) canonicalSnapshots.push(await transaction.get(reference));
+      const cursorReference = cursorRef(this.firestore, datasetId);
+      const cursorSnapshot = await transaction.get(cursorReference);
+      let nextCursor =
+        (cursorSnapshot.data() as FirestoreCursorMetadata | undefined)?.currentCursor ?? 0;
+
+      for (const decision of decisions) {
+        const entry = getPendingRejoinRecoveryEntry(recoveryBatch, decision.entryId);
+        const approvedIndex =
+          decision.action === 'approve' ? approvedDecisions.indexOf(decision) : -1;
+        const existing =
+          approvedIndex >= 0
+            ? (canonicalSnapshots[approvedIndex]?.data() as
+                | CanonicalSyncDocument
+                | undefined)
+            : undefined;
+        const plan = planRejoinRecoveryDecision(entry, decision, existing);
+        if (plan.documentCandidate) {
+          const committedDocument: CanonicalSyncDocument = {
+            ...plan.documentCandidate,
+            datasetId,
+            revision: (existing?.revision ?? 0) + 1,
+            updatedAt: Date.now(),
+            updatedByDeviceId: actorDeviceId,
+          };
+          nextCursor += 1;
+          transaction.set(documentReferences[approvedIndex]!, committedDocument);
+          transaction.set(changeRef(this.firestore, datasetId, nextCursor), {
+            datasetId,
+            cursor: nextCursor,
+            documentId: committedDocument.documentId,
+            documentType: committedDocument.documentType,
+            revision: committedDocument.revision,
+            changedAt: committedDocument.updatedAt,
+            operation: committedDocument.tombstone ? 'tombstone' : 'upsert',
+            document: committedDocument,
+          } satisfies CanonicalSyncChange);
+        }
+        applyRejoinRecoveryDecision(recoveryBatch, entry, plan.nextStatus);
+      }
+      transaction.set(batchReference, recoveryBatch);
+      transaction.set(cursorReference, { currentCursor: nextCursor });
+      return recoveryBatch;
+    });
+  }
+
+  private async commitRejoinRecoveryReconsideration(
+    datasetId: string,
+    batchId: string,
+    entryIds: string[]
+  ): Promise<RejoinRecoveryBatch> {
+    return runTransaction(this.firestore, async transaction => {
+      await this.assertRemoteSyncMutationUnlocked(transaction, datasetId);
+      const reference = rejoinRecoveryBatchRef(this.firestore, datasetId, batchId);
+      const snapshot = await transaction.get(reference);
+      if (!snapshot.exists()) throw new Error(`Rejoin recovery batch not found: ${batchId}`);
+      const batch = snapshot.data() as RejoinRecoveryBatch;
+      reconsiderHeldRejoinRecoveryEntries(batch, entryIds);
+      transaction.set(reference, batch);
+      return batch;
+    });
+  }
+
   private async commitJoinedDeviceRevocation(
     datasetId: string,
     targetDeviceId: string
@@ -1186,6 +1456,10 @@ function sharedRestoreEventRef(firestore: Firestore, datasetId: string, eventId:
 
 function sharedCleanupEventRef(firestore: Firestore, datasetId: string, eventId: string) {
   return doc(datasetRef(firestore, datasetId), SHARED_CLEANUP_EVENTS, eventId);
+}
+
+function rejoinRecoveryBatchRef(firestore: Firestore, datasetId: string, batchId: string) {
+  return doc(datasetRef(firestore, datasetId), REJOIN_RECOVERY_BATCHES, batchId);
 }
 
 async function assertDatasetExists(firestore: Firestore, datasetId: string): Promise<void> {

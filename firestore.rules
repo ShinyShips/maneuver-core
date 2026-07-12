@@ -86,6 +86,13 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // The browser adapter enforces joined-device submission and cleanup-capable
+    // review for the local/dev harness. Production deployments must bind these
+    // operations to authenticated device claims before using these rules.
+    match /datasets/{datasetId}/rejoin_recovery_batches/{batchId} {
+      allow read, write: if true;
+    }
+
     // Portable restore artifacts live only in the server-local snapshot store.
     // No browser or joined-device Firestore path may read or mutate them.
     match /datasets/{datasetId}/snapshots/{snapshotId} {
