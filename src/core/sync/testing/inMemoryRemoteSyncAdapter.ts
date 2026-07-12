@@ -1,10 +1,15 @@
 import type {
   CanonicalSyncChange,
   CanonicalSyncDocument,
+  CleanupAuthorityGrant,
+  CleanupCanonicalDocumentsInput,
+  CleanupCanonicalDocumentsResult,
+  CleanupDatasetEventRecord,
   CreateCleanupCredentialInput,
   CreateDatasetInput,
   CreateJoinCredentialInput,
   DatasetCleanupCredential,
+  DeprovisionCleanupAuthorityInput,
   DatasetHealth,
   DatasetEventRecord,
   GetJoinedDatasetOverviewInput,
@@ -14,10 +19,12 @@ import type {
   JoinedDeviceIdentity,
   PullChangesInput,
   PullChangesResult,
+  ProvisionCleanupAuthorityInput,
   PushDocumentsInput,
   PushDocumentsResult,
   RemoteSyncAdapter,
   RotateJoinCredentialInput,
+  ServerLocalCleanupCanonicalDocumentsInput,
   SharedRestoreEvent,
   TeamDataset,
 } from '../types';
@@ -25,9 +32,11 @@ import {
   CanonicalDocumentManualConflictError,
   reconcileCanonicalDocumentCandidate,
 } from '../canonicalDocumentReconciliation';
+import { createCanonicalCleanupPlan } from '../canonicalDocumentCleanup';
 import {
   createSharedRestoreEvent,
   selectCleanupCapableDevices,
+  selectRecentCleanupEvents,
   selectRecentRestoreEvents,
   type CleanupCapabilityProjection,
 } from '../datasetOverview';
@@ -43,6 +52,7 @@ interface InMemoryDatasetState {
   events: DatasetEventRecord[];
   cleanupCapabilities: Map<string, CleanupCapabilityProjection>;
   sharedRestoreEvents: SharedRestoreEvent[];
+  sharedCleanupEvents: CleanupDatasetEventRecord[];
   cursor: number;
 }
 
@@ -76,6 +86,7 @@ class InMemoryRemoteSyncAdapter implements RemoteSyncAdapter {
       events: [],
       cleanupCapabilities: new Map(),
       sharedRestoreEvents: [],
+      sharedCleanupEvents: [],
       cursor: 0,
     });
 
@@ -109,18 +120,135 @@ class InMemoryRemoteSyncAdapter implements RemoteSyncAdapter {
       secret: crypto.randomUUID(),
       createdAt: Date.now(),
       createdByDeviceId: input.operatorDeviceId,
-      provisionedDeviceId: input.provisionedDeviceId,
       expiresAt: input.expiresAt,
     };
 
     dataset.credentials.set(credential.credentialId, credential);
-    if (credential.provisionedDeviceId) {
-      dataset.cleanupCapabilities.set(credential.credentialId, {
-        deviceId: credential.provisionedDeviceId,
-        expiresAt: credential.expiresAt,
-      });
-    }
     return credential;
+  }
+
+  async provisionCleanupAuthority(
+    input: ProvisionCleanupAuthorityInput
+  ): Promise<CleanupAuthorityGrant> {
+    const dataset = this.requireDataset(input.datasetId);
+    const device = dataset.devices.get(input.deviceId);
+
+    if (!device || device.revokedAt) {
+      throw new Error(`Remote sync device is not joined to dataset ${input.datasetId}.`);
+    }
+
+    const credential = dataset.credentials.get(input.credentialId);
+
+    if (!credential || credential.credentialKind !== 'cleanup') {
+      throw new Error('Cleanup credential not found.');
+    }
+    if (credential.revokedAt) {
+      throw new Error('Cleanup credential has been revoked.');
+    }
+    if (credential.expiresAt && credential.expiresAt <= Date.now()) {
+      throw new Error('Cleanup credential has expired.');
+    }
+    if (credential.secret !== input.credentialSecret) {
+      throw new Error('Cleanup credential secret does not match.');
+    }
+
+    const grant: CleanupAuthorityGrant = {
+      datasetId: input.datasetId,
+      deviceId: input.deviceId,
+      credentialId: input.credentialId,
+      provisionedAt: Date.now(),
+      expiresAt: credential.expiresAt,
+    };
+    dataset.cleanupCapabilities.set(input.credentialId, {
+      deviceId: input.deviceId,
+      expiresAt: credential.expiresAt,
+    });
+    return grant;
+  }
+
+  async deprovisionCleanupAuthority(
+    input: DeprovisionCleanupAuthorityInput
+  ): Promise<void> {
+    const dataset = this.requireDataset(input.datasetId);
+    for (const [credentialId, capability] of dataset.cleanupCapabilities) {
+      if (capability.deviceId === input.deviceId) {
+        dataset.cleanupCapabilities.delete(credentialId);
+      }
+    }
+  }
+
+  async cleanupCanonicalDocuments(
+    input: CleanupCanonicalDocumentsInput
+  ): Promise<CleanupCanonicalDocumentsResult> {
+    const dataset = this.requireDataset(input.datasetId);
+    const device = dataset.devices.get(input.deviceId);
+    const hasCleanupAuthority = [...dataset.cleanupCapabilities.values()].some(
+      capability =>
+        capability.deviceId === input.deviceId &&
+        !capability.revokedAt &&
+        (!capability.expiresAt || capability.expiresAt > Date.now())
+    );
+    if (!device || device.revokedAt || !hasCleanupAuthority) {
+      throw new Error(`Remote sync device ${input.deviceId} does not have cleanup authority.`);
+    }
+
+    return this.commitCleanup(
+      dataset,
+      input.datasetId,
+      input.targets,
+      input.reason,
+      device.deviceId,
+      device.displayName
+    );
+  }
+
+  async cleanupCanonicalDocumentsServerLocal(
+    input: ServerLocalCleanupCanonicalDocumentsInput
+  ): Promise<CleanupCanonicalDocumentsResult> {
+    return this.commitCleanup(
+      this.requireDataset(input.datasetId),
+      input.datasetId,
+      input.targets,
+      input.reason,
+      input.actorDeviceId,
+      input.actorDisplayName
+    );
+  }
+
+  private commitCleanup(
+    dataset: InMemoryDatasetState,
+    datasetId: string,
+    targets: CleanupCanonicalDocumentsInput['targets'],
+    reason: string | undefined,
+    actorDeviceId: string,
+    actorDisplayName: string
+  ): CleanupCanonicalDocumentsResult {
+    const plan = createCanonicalCleanupPlan({
+      datasetId,
+      eventId: crypto.randomUUID(),
+      actorDeviceId,
+      actorDisplayName,
+      occurredAt: Date.now(),
+      currentCursor: dataset.cursor,
+      candidates: targets.map(target => ({
+        target,
+        document: dataset.currentDocuments.get(
+          getDocumentKey(target.documentType, target.documentId)
+        ),
+      })),
+      ...(reason === undefined ? {} : { reason }),
+    });
+    for (const document of plan.cleanedDocuments) {
+      dataset.currentDocuments.set(
+        getDocumentKey(document.documentType, document.documentId),
+        document
+      );
+    }
+    dataset.cursor = plan.cursor;
+    dataset.changes.push(...plan.changes);
+    dataset.events.push(plan.event);
+    dataset.sharedCleanupEvents.push(plan.event);
+    return { ...plan, event: structuredClone(plan.event) };
   }
 
   async rotateJoinCredential(input: RotateJoinCredentialInput): Promise<DatasetJoinCredential> {
@@ -145,6 +273,8 @@ class InMemoryRemoteSyncAdapter implements RemoteSyncAdapter {
     dataset.events.push(event);
     if (event.eventType === 'restore') {
       dataset.sharedRestoreEvents.push(createSharedRestoreEvent(event));
+    } else if (event.eventType === 'cleanup') {
+      dataset.sharedCleanupEvents.push(event);
     }
     return event;
   }
@@ -322,6 +452,7 @@ class InMemoryRemoteSyncAdapter implements RemoteSyncAdapter {
         [...dataset.devices.values()],
         [...dataset.cleanupCapabilities.values()]
       ),
+      recentCleanupEvents: selectRecentCleanupEvents(dataset.sharedCleanupEvents),
       recentRestoreEvents: selectRecentRestoreEvents(dataset.sharedRestoreEvents),
       checkedAt: Date.now(),
     };

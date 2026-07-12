@@ -1,12 +1,19 @@
 export type {
   CanonicalChangeOperation,
+  CanonicalDocumentTarget,
   CanonicalDocumentType,
   CanonicalSyncChange,
   CanonicalSyncDocument,
+  CleanupAuthorityGrant,
+  CleanupCanonicalDocumentsInput,
+  CleanupCanonicalDocumentsResult,
+  CleanupDatasetEventRecord,
   CreateCleanupCredentialInput,
   CreateDatasetInput,
   CreateJoinCredentialInput,
+  DeprovisionCleanupAuthorityInput,
   DatasetCleanupCredential,
+  DatasetCleanupProvisioningArtifact,
   DatasetHealth,
   DatasetEventRecord,
   BackupDatasetEventRecord,
@@ -21,10 +28,12 @@ export type {
   CleanupCapableDeviceSummary,
   PullChangesInput,
   PullChangesResult,
+  ProvisionCleanupAuthorityInput,
   PushDocumentsInput,
   PushDocumentsResult,
   QueueHealth,
   RestoreDatasetEventRecord,
+  ServerLocalCleanupCanonicalDocumentsInput,
   RemoteSyncFirebaseProjectConfig,
   RemoteSyncAdapter,
   RemoteSyncAdminAdapter,
@@ -46,6 +55,10 @@ export {
   parseDatasetJoinArtifact,
   saveRemoteSyncConnection,
 } from './remoteSyncConnection';
+export {
+  parseCleanupDocumentTargets,
+  parseDatasetCleanupProvisioningArtifact,
+} from './remoteSyncCleanup';
 export {
   getRemoteSyncQueueHealth,
   loadRemoteSyncQueue,
@@ -93,6 +106,7 @@ export type {
   RemoteSyncConnection,
   RemoteSyncDeviceDefaults,
 } from './remoteSyncConnection';
+export type { ParseCleanupProvisioningArtifactResult } from './remoteSyncCleanup';
 export type { RemoteSyncQueueItem, RemoteSyncQueueOperation } from './remoteSyncQueue';
 export type { ScoutProfileQueueItem } from './scoutProfileQueue';
 export type {

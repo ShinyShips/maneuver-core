@@ -5,6 +5,8 @@ import { clearGamificationData as clearGameData } from "@/game-template/gamifica
 import { gamificationDB as gameDB } from "@/game-template/gamification";
 import { clearAllPitScoutingData } from "@/core/lib/pitScoutingUtils";
 import { clearAllTBACache, clearEventCache, clearEventValidationResults } from "@/core/lib/tbaCache";
+import { loadRemoteSyncConnection } from "@/core/sync/remoteSyncConnection";
+import { createRemoteSyncAdapterForConnection } from "@/core/sync/remoteSyncAdapterFactory";
 import { clearStoredEventTeams, clearStoredNexusData } from "@/core/lib/tba";
 
 export const useDataCleaning = (
@@ -220,6 +222,26 @@ export const useDataCleaning = (
     try {
       console.log("localStorage before clearing:", Object.keys(localStorage));
 
+      const remoteSyncConnection = loadRemoteSyncConnection();
+      let cleanupAuthorityRemovalFailed = false;
+      if (remoteSyncConnection) {
+        try {
+          await withTimeout(
+            createRemoteSyncAdapterForConnection(
+              remoteSyncConnection
+            ).deprovisionCleanupAuthority({
+              datasetId: remoteSyncConnection.datasetId,
+              deviceId: remoteSyncConnection.deviceId,
+            }),
+            3_000,
+            "Remote cleanup-authority removal timed out."
+          );
+        } catch (error) {
+          cleanupAuthorityRemovalFailed = true;
+          console.warn("Could not remove Remote sync cleanup authority before local reset:", error);
+        }
+      }
+
       await clearAllScoutingData();
       await clearAllPitScoutingData();
       await clearGameData();
@@ -238,6 +260,11 @@ export const useDataCleaning = (
       toast.success("Cleared all data - complete clean slate", {
         description: "All stored data has been permanently removed from this device."
       });
+      if (cleanupAuthorityRemovalFailed) {
+        toast.warning("Remote cleanup authority may still be visible", {
+          description: "The local reset completed offline, but the Team dataset could not be reached to remove this device's cleanup authority."
+        });
+      }
 
     } catch (error) {
       console.error("Error clearing all data:", error);
@@ -255,3 +282,16 @@ export const useDataCleaning = (
     handleClearAllData,
   };
 };
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}

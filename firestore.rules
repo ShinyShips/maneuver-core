@@ -2,6 +2,27 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+    function cleanupCredentialIsActive(datasetId, claim) {
+      let credentialPath = /databases/$(database)/documents/datasets/$(datasetId)/cleanup_credentials/$(claim.credentialId);
+      let credential = get(credentialPath).data;
+      return exists(credentialPath)
+        && claim.credentialSecret == credential.secret
+        && credential.credentialKind == 'cleanup'
+        && (!('revokedAt' in credential) || credential.revokedAt == null)
+        && (!('expiresAt' in credential) || credential.expiresAt > request.time.toMillis())
+        && (
+          !('expiresAt' in credential)
+          || ('expiresAt' in claim && claim.expiresAt == credential.expiresAt)
+        );
+    }
+
+    function hasCleanupAuthority(datasetId, deviceId) {
+      let claimPath = /databases/$(database)/documents/datasets/$(datasetId)/cleanup_authority_claims/$(deviceId);
+      return getAfter(claimPath).data != null
+        && getAfter(claimPath).data.deviceId == deviceId
+        && cleanupCredentialIsActive(datasetId, getAfter(claimPath).data);
+    }
+
     // Local/dev Remote sync harness rules. Public joined-device data remains
     // readable for the unauthenticated adapter path, while cleanup secrets and
     // privileged operational history are never client-readable.
@@ -29,12 +50,40 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
-    match /datasets/{datasetId}/public_cleanup_devices/{projectionId} {
-      allow read, write: if true;
+    match /datasets/{datasetId}/cleanup_authority_claims/{deviceId} {
+      allow read: if false;
+      allow create, update: if request.resource.data.deviceId == deviceId
+        && exists(/databases/$(database)/documents/datasets/$(datasetId)/devices/$(deviceId))
+        && cleanupCredentialIsActive(datasetId, request.resource.data);
+      allow delete: if true;
+    }
+
+    match /datasets/{datasetId}/public_cleanup_devices/{deviceId} {
+      allow read: if true;
+      allow create, update: if request.resource.data.deviceId == deviceId
+        && hasCleanupAuthority(datasetId, deviceId)
+        && (
+          (
+            'expiresAt' in request.resource.data
+            && request.resource.data.expiresAt == getAfter(/databases/$(database)/documents/datasets/$(datasetId)/cleanup_authority_claims/$(deviceId)).data.expiresAt
+          )
+          || (
+            !('expiresAt' in request.resource.data)
+            && !('expiresAt' in getAfter(/databases/$(database)/documents/datasets/$(datasetId)/cleanup_authority_claims/$(deviceId)).data)
+          )
+        );
+      allow delete: if true;
     }
 
     match /datasets/{datasetId}/shared_restore_events/{eventId} {
       allow read, write: if true;
+    }
+
+    match /datasets/{datasetId}/shared_cleanup_events/{eventId} {
+      allow read: if true;
+      allow create: if request.resource.data.eventId == eventId
+        && hasCleanupAuthority(datasetId, request.resource.data.actorDeviceId);
+      allow update, delete: if false;
     }
 
     match /datasets/{datasetId}/cleanup_credentials/{credentialId} {
@@ -44,7 +93,9 @@ service cloud.firestore {
 
     match /datasets/{datasetId}/dataset_events/{eventId} {
       allow read: if false;
-      allow write: if true;
+      allow create: if request.resource.data.eventType != 'cleanup'
+        || hasCleanupAuthority(datasetId, request.resource.data.actorDeviceId);
+      allow update, delete: if resource.data.eventType != 'cleanup';
     }
   }
 }

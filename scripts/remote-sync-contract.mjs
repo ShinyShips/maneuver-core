@@ -192,6 +192,7 @@ import {
   loadPendingScoutNameCollisions,
   loadRemoteSyncConnection,
   loadRemoteSyncQueue,
+  parseDatasetCleanupProvisioningArtifact,
   readScopedOnlineScoutingEntries,
   resolveScoutNameCollision,
   reconcileScoutProfile,
@@ -215,6 +216,7 @@ import {
 import type { DatasetJoinArtifact } from '@/core/sync';
 import type { ScoutingEntryBase } from '@/core/types/scouting-entry';
 import { JoinedDatasetOverviewPanel } from '@/core/components/remote-sync/JoinedDatasetOverviewPanel';
+import { CleanupAuthorityPanel } from '@/core/components/remote-sync/CleanupAuthorityPanel';
 import { ScoutingExportScopePanel } from '@/core/components/data-transfer/ScoutingExportScopePanel';
 import {
   __getRemoteSyncContractScoutProfile,
@@ -261,6 +263,7 @@ function useClient(clientId: string): void {
     addEventListener: () => undefined,
     removeEventListener: () => undefined,
     dispatchEvent: () => true,
+    matchMedia: () => ({ matches: true }),
   };
 
   Object.defineProperty(globalThis, 'window', {
@@ -745,16 +748,59 @@ async function runContract(): Promise<void> {
     'dataset health remains limited to joined devices'
   );
 
-  await adapter.createCleanupCredential({
+  const unprovisionedCleanupCredential = await adapter.createCleanupCredential({
     datasetId: dataset.datasetId,
     operatorDeviceId: joinedDeviceId,
   });
-  await adapter.createCleanupCredential({
+  const expiredCleanupCredential = await adapter.createCleanupCredential({
     datasetId: dataset.datasetId,
     operatorDeviceId: 'operator',
-    provisionedDeviceId: joinedDeviceId,
     expiresAt: 1,
   });
+  await assert.rejects(
+    () =>
+      adapter.provisionCleanupAuthority({
+        datasetId: dataset.datasetId,
+        deviceId: joinedDeviceId,
+        credentialId: credential.credentialId,
+        credentialSecret: credential.secret,
+      }),
+    /Cleanup credential not found/,
+    'an ordinary Dataset join credential cannot grant cleanup authority'
+  );
+  await assert.rejects(
+    () =>
+      adapter.provisionCleanupAuthority({
+        datasetId: dataset.datasetId,
+        deviceId: joinedDeviceId,
+        credentialId: unprovisionedCleanupCredential.credentialId,
+        credentialSecret: 'incorrect-secret',
+      }),
+    /secret does not match/,
+    'cleanup authority requires the Cleanup credential secret'
+  );
+  await assert.rejects(
+    () =>
+      adapter.provisionCleanupAuthority({
+        datasetId: dataset.datasetId,
+        deviceId: joinedDeviceId,
+        credentialId: expiredCleanupCredential.credentialId,
+        credentialSecret: expiredCleanupCredential.secret,
+      }),
+    /expired/,
+    'expired Cleanup credentials cannot grant cleanup authority'
+  );
+  await assert.rejects(
+    () =>
+      adapter.provisionCleanupAuthority({
+        datasetId: dataset.datasetId,
+        deviceId: 'not-joined',
+        credentialId: unprovisionedCleanupCredential.credentialId,
+        credentialSecret: unprovisionedCleanupCredential.secret,
+      }),
+    /not joined/,
+    'cleanup authority can only be provisioned to a joined device'
+  );
   const overviewWithoutCleanupAuthority = await adapter.getJoinedDatasetOverview({
     datasetId: dataset.datasetId,
     deviceId: joinedDeviceId,
@@ -764,10 +810,11 @@ async function runContract(): Promise<void> {
     [],
     'credential creators and expired provisions are not shown as current cleanup authority'
   );
-  await adapter.createCleanupCredential({
+  await adapter.provisionCleanupAuthority({
     datasetId: dataset.datasetId,
-    operatorDeviceId: 'operator',
-    provisionedDeviceId: joinedDeviceId,
+    deviceId: joinedDeviceId,
+    credentialId: unprovisionedCleanupCredential.credentialId,
+    credentialSecret: unprovisionedCleanupCredential.secret,
   });
   const overviewWithCleanupAuthority = await adapter.getJoinedDatasetOverview({
     datasetId: dataset.datasetId,
@@ -1242,6 +1289,189 @@ async function runContract(): Promise<void> {
   assert.match(exportScopeMarkup, /Continue with local export/);
   assert.match(exportScopeMarkup, /Scoped online export failed/);
   assert.match(exportScopeMarkup, /Export current device&#x27;s local replica instead/);
+
+  const ordinaryCleanupMarkup = renderToStaticMarkup(
+    createElement(CleanupAuthorityPanel, {
+      cleanupCapable: false,
+      cleanupProvisioningArtifactText: '',
+      cleanupTargetsText: '',
+      cleanupReason: '',
+      busy: false,
+      onCleanupProvisioningArtifactTextChange: () => undefined,
+      onCleanupTargetsTextChange: () => undefined,
+      onCleanupReasonChange: () => undefined,
+      onProvision: () => undefined,
+      onCleanup: () => undefined,
+    })
+  );
+  assert.match(ordinaryCleanupMarkup, /Provision cleanup authority/);
+  assert.match(ordinaryCleanupMarkup, /Cleanup provisioning artifact/);
+  assert.doesNotMatch(
+    ordinaryCleanupMarkup,
+    /Delete selected shared documents/,
+    'ordinary devices do not receive destructive shared controls'
+  );
+  const recoveryArtifactWithoutDevice = {
+    protocolVersion: 1,
+    backend: 'firebase',
+    datasetId: dataset.datasetId,
+    datasetName: dataset.displayName,
+    cleanupCredentialId: unprovisionedCleanupCredential.credentialId,
+    cleanupCredentialSecret: unprovisionedCleanupCredential.secret,
+    firebase: { projectId: 'remote-sync-contract' },
+  };
+  assert.equal(
+    parseDatasetCleanupProvisioningArtifact(
+      JSON.stringify(recoveryArtifactWithoutDevice)
+    ).ok,
+    false,
+    'an operator recovery artifact is not itself a device cleanup grant'
+  );
+  assert.equal(
+    parseDatasetCleanupProvisioningArtifact(
+      JSON.stringify({
+        ...recoveryArtifactWithoutDevice,
+        provisionedDeviceId: joinedDeviceId,
+      })
+    ).ok,
+    true,
+    'Utilities can target a cleanup provisioning artifact to one joined device'
+  );
+  const privilegedCleanupMarkup = renderToStaticMarkup(
+    createElement(CleanupAuthorityPanel, {
+      cleanupCapable: true,
+      cleanupProvisioningArtifactText: '',
+      cleanupTargetsText: 'match-scouting-entry|2026miket::qm1::3314::red',
+      cleanupReason: 'Invalid entry',
+      busy: false,
+      onCleanupProvisioningArtifactTextChange: () => undefined,
+      onCleanupTargetsTextChange: () => undefined,
+      onCleanupReasonChange: () => undefined,
+      onProvision: () => undefined,
+      onCleanup: () => undefined,
+    })
+  );
+  assert.match(privilegedCleanupMarkup, /Cleanup authority active/);
+  assert.match(privilegedCleanupMarkup, /Delete selected shared documents/);
+  assert.match(privilegedCleanupMarkup, /replicated tombstones/);
+  assert.match(privilegedCleanupMarkup, /does not change this device&#x27;s Event sync scope/);
+
+  const ordinaryCleanupDevice = await adapter.joinDataset({
+    artifact,
+    deviceId: 'ordinary-cleanup-device',
+    deviceDisplayName: 'Ordinary cleanup device',
+  });
+  const cleanupTarget = {
+    documentType: 'match-scouting-entry' as const,
+    documentId: '2026miket::qm1::3314::red',
+  };
+  await assert.rejects(
+    () =>
+      adapter.cleanupCanonicalDocuments({
+        datasetId: dataset.datasetId,
+        deviceId: ordinaryCleanupDevice.deviceId,
+        targets: [cleanupTarget],
+        reason: 'Remove invalid shared scouting entry',
+      }),
+    /does not have cleanup authority/,
+    'ordinary joined devices cannot destructively clean shared documents'
+  );
+
+  const beforeCleanup = Date.now();
+  const cleanupResult = await adapter.cleanupCanonicalDocuments({
+    datasetId: dataset.datasetId,
+    deviceId: joinedDeviceId,
+    targets: [cleanupTarget],
+    reason: 'Remove invalid shared scouting entry',
+  });
+  assert.deepEqual(
+    {
+      cleanedDocumentCount: cleanupResult.cleanedDocuments.length,
+      tombstone: cleanupResult.cleanedDocuments[0]?.tombstone,
+      updatedByDeviceId: cleanupResult.cleanedDocuments[0]?.updatedByDeviceId,
+      actorDeviceId: cleanupResult.event.actorDeviceId,
+      actorDisplayName: cleanupResult.event.actorDisplayName,
+      reason: cleanupResult.event.reason,
+      occurredAfterRequest: cleanupResult.event.occurredAt >= beforeCleanup,
+    },
+    {
+      cleanedDocumentCount: 1,
+      tombstone: true,
+      updatedByDeviceId: joinedDeviceId,
+      actorDeviceId: joinedDeviceId,
+      actorDisplayName: 'client-a',
+      reason: 'Remove invalid shared scouting entry',
+      occurredAfterRequest: true,
+    },
+    'cleanup authority creates an attributed replicated tombstone and audit event'
+  );
+  const overviewAfterCleanup = await adapter.getJoinedDatasetOverview({
+    datasetId: dataset.datasetId,
+    deviceId: ordinaryCleanupDevice.deviceId,
+  });
+  assert.deepEqual(
+    overviewAfterCleanup.recentCleanupEvents[0],
+    cleanupResult.event,
+    'ordinary joined devices can see the recent attributed cleanup action'
+  );
+  const cleanupHistoryMarkup = renderToStaticMarkup(
+    createElement(JoinedDatasetOverviewPanel, { overview: overviewAfterCleanup })
+  );
+  assert.match(cleanupHistoryMarkup, /Recent shared cleanups/);
+  assert.match(cleanupHistoryMarkup, /client-a/);
+  assert.match(cleanupHistoryMarkup, /Remove invalid shared scouting entry/);
+
+  const serverLocalCleanup = await adapter.cleanupCanonicalDocumentsServerLocal({
+    datasetId: dataset.datasetId,
+    actorDeviceId: 'utilities-server-local',
+    actorDisplayName: 'Utilities server-local operator',
+    targets: [
+      {
+        documentType: 'match-scouting-entry',
+        documentId: '2026oncmp::qm3::3314::red',
+      },
+    ],
+    reason: 'Server-local emergency cleanup',
+  });
+  assert.deepEqual(
+    {
+      cleanedDocumentCount: serverLocalCleanup.cleanedDocuments.length,
+      actorDeviceId: serverLocalCleanup.event.actorDeviceId,
+      actorDisplayName: serverLocalCleanup.event.actorDisplayName,
+    },
+    {
+      cleanedDocumentCount: 1,
+      actorDeviceId: 'utilities-server-local',
+      actorDisplayName: 'Utilities server-local operator',
+    },
+    'the server-local privileged path can perform an attributed destructive shared action'
+  );
+
+  await adapter.deprovisionCleanupAuthority({
+    datasetId: dataset.datasetId,
+    deviceId: joinedDeviceId,
+  });
+  const overviewAfterDeprovision = await adapter.getJoinedDatasetOverview({
+    datasetId: dataset.datasetId,
+    deviceId: ordinaryCleanupDevice.deviceId,
+  });
+  assert.equal(
+    overviewAfterDeprovision.cleanupCapableDevices.some(
+      device => device.deviceId === joinedDeviceId
+    ),
+    false,
+    'disconnect/reset deprovisioning removes stale visible cleanup authority'
+  );
+  await assert.rejects(
+    () =>
+      adapter.cleanupCanonicalDocuments({
+        datasetId: dataset.datasetId,
+        deviceId: joinedDeviceId,
+        targets: [cleanupTarget],
+      }),
+    /does not have cleanup authority/,
+    'a deprovisioned device cannot perform later destructive shared actions'
+  );
 }
 
 await runContract();

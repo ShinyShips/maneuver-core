@@ -50,6 +50,33 @@ export function JoinedDatasetOverviewPanel({
 
         <section className="space-y-3">
           <h3 className="flex items-center gap-2 font-semibold">
+            <History className="size-4" />
+            Recent shared cleanups
+          </h3>
+          {overview.recentCleanupEvents.length > 0 ? (
+            <ul className="space-y-3">
+              {overview.recentCleanupEvents.map(event => (
+                <li key={event.eventId} className="rounded-md border border-border p-3 text-sm">
+                  <p className="font-medium">
+                    {event.targets.length} shared document
+                    {event.targets.length === 1 ? '' : 's'} removed
+                  </p>
+                  <p className="text-muted-foreground">
+                    By {event.actorDisplayName} at {formatTimestamp(event.occurredAt)}.
+                  </p>
+                  {event.reason && <p className="mt-2">{event.reason}</p>}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-muted-foreground">No shared cleanup events.</p>
+          )}
+        </section>
+
+        <Separator />
+
+        <section className="space-y-3">
+          <h3 className="flex items-center gap-2 font-semibold">
             <ShieldCheck className="size-4" />
             Cleanup authority
           </h3>

@@ -1,5 +1,6 @@
 import type {
   CleanupCapableDeviceSummary,
+  CleanupDatasetEventRecord,
   JoinedDeviceIdentity,
   RestoreDatasetEventRecord,
   SharedRestoreEvent,
@@ -34,6 +35,16 @@ export function selectCleanupCapableDevices(
 }
 
 export function selectRecentRestoreEvents(events: SharedRestoreEvent[]): SharedRestoreEvent[] {
+  return events
+    .slice()
+    .sort((left, right) => right.occurredAt - left.occurredAt)
+    .slice(0, 10)
+    .map(event => structuredClone(event));
+}
+
+export function selectRecentCleanupEvents(
+  events: CleanupDatasetEventRecord[]
+): CleanupDatasetEventRecord[] {
   return events
     .slice()
     .sort((left, right) => right.occurredAt - left.occurredAt)

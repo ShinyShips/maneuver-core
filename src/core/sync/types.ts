@@ -50,7 +50,6 @@ export interface DatasetCleanupCredential {
   credentialKind: 'cleanup';
   secret: string;
   createdAt: number;
-  provisionedDeviceId?: string;
   expiresAt?: number;
   revokedAt?: number;
 }
@@ -89,11 +88,16 @@ export interface DatasetOperatorRecoveryArtifact {
   datasetName: string;
   cleanupCredentialId: string;
   cleanupCredentialSecret: string;
+  cleanupCredentialExpiresAt?: number;
   firebase: RemoteSyncFirebaseProjectConfig;
   firestoreEmulator?: {
     host: string;
     port: number;
   };
+}
+
+export interface DatasetCleanupProvisioningArtifact extends DatasetOperatorRecoveryArtifact {
+  provisionedDeviceId: string;
 }
 
 export interface JoinedDeviceIdentity {
@@ -148,6 +152,17 @@ export interface SharedRestoreEvent {
   reason?: string;
 }
 
+export interface CanonicalDocumentTarget {
+  documentType: CanonicalDocumentType;
+  documentId: string;
+}
+
+export interface CleanupDatasetEventRecord extends DatasetEventRecordBase {
+  eventType: 'cleanup';
+  targets: CanonicalDocumentTarget[];
+  reason?: string;
+}
+
 interface DatasetEventRecordBase {
   datasetId: string;
   eventId: string;
@@ -166,12 +181,16 @@ export interface RestoreDatasetEventRecord extends DatasetEventRecordBase, Share
   eventType: 'restore';
 }
 
-export type DatasetEventRecord = BackupDatasetEventRecord | RestoreDatasetEventRecord;
+export type DatasetEventRecord =
+  | BackupDatasetEventRecord
+  | CleanupDatasetEventRecord
+  | RestoreDatasetEventRecord;
 
 export interface JoinedDatasetOverview {
   datasetId: string;
   summary: DatasetSummarySignals;
   cleanupCapableDevices: CleanupCapableDeviceSummary[];
+  recentCleanupEvents: CleanupDatasetEventRecord[];
   recentRestoreEvents: SharedRestoreEvent[];
   checkedAt: number;
 }
@@ -192,8 +211,49 @@ export interface CreateJoinCredentialInput {
 export interface CreateCleanupCredentialInput {
   datasetId: string;
   operatorDeviceId: string;
-  provisionedDeviceId?: string;
   expiresAt?: number;
+}
+
+export interface ProvisionCleanupAuthorityInput {
+  datasetId: string;
+  deviceId: string;
+  credentialId: string;
+  credentialSecret: string;
+  credentialExpiresAt?: number;
+}
+
+export interface DeprovisionCleanupAuthorityInput {
+  datasetId: string;
+  deviceId: string;
+}
+
+export interface CleanupAuthorityGrant {
+  datasetId: string;
+  deviceId: string;
+  credentialId: string;
+  provisionedAt: number;
+  expiresAt?: number;
+}
+
+export interface CleanupCanonicalDocumentsInput {
+  datasetId: string;
+  deviceId: string;
+  targets: CanonicalDocumentTarget[];
+  reason?: string;
+}
+
+export interface ServerLocalCleanupCanonicalDocumentsInput {
+  datasetId: string;
+  actorDeviceId: string;
+  actorDisplayName: string;
+  targets: CanonicalDocumentTarget[];
+  reason?: string;
+}
+
+export interface CleanupCanonicalDocumentsResult {
+  cleanedDocuments: CanonicalSyncDocument[];
+  cursor: number;
+  event: CleanupDatasetEventRecord;
 }
 
 export interface RotateJoinCredentialInput extends CreateJoinCredentialInput {
@@ -236,6 +296,13 @@ export interface PullChangesResult<TPayload = unknown> {
 
 export interface RemoteSyncClientAdapter {
   joinDataset(input: JoinDatasetInput): Promise<JoinedDeviceIdentity>;
+  provisionCleanupAuthority(
+    input: ProvisionCleanupAuthorityInput
+  ): Promise<CleanupAuthorityGrant>;
+  deprovisionCleanupAuthority(input: DeprovisionCleanupAuthorityInput): Promise<void>;
+  cleanupCanonicalDocuments(
+    input: CleanupCanonicalDocumentsInput
+  ): Promise<CleanupCanonicalDocumentsResult>;
   pushDocuments<TPayload = unknown>(
     input: PushDocumentsInput<TPayload>
   ): Promise<PushDocumentsResult<TPayload>>;
@@ -250,6 +317,9 @@ export interface RemoteSyncAdminAdapter {
   createCleanupCredential(input: CreateCleanupCredentialInput): Promise<DatasetCleanupCredential>;
   rotateJoinCredential(input: RotateJoinCredentialInput): Promise<DatasetJoinCredential>;
   recordDatasetEvent(input: DatasetEventRecord): Promise<DatasetEventRecord>;
+  cleanupCanonicalDocumentsServerLocal(
+    input: ServerLocalCleanupCanonicalDocumentsInput
+  ): Promise<CleanupCanonicalDocumentsResult>;
   getDatasetHealth(datasetId: string): Promise<DatasetHealth>;
 }
 

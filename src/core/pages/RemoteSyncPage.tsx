@@ -26,6 +26,7 @@ import { Label } from '@/core/components/ui/label';
 import { Separator } from '@/core/components/ui/separator';
 import { Textarea } from '@/core/components/ui/textarea';
 import { JoinedDatasetOverviewPanel } from '@/core/components/remote-sync/JoinedDatasetOverviewPanel';
+import { CleanupAuthorityPanel } from '@/core/components/remote-sync/CleanupAuthorityPanel';
 import { useRemoteSyncConnection } from '@/core/hooks/useRemoteSyncConnection';
 import { useRemoteSyncQueueHealth } from '@/core/hooks/useRemoteSyncQueueHealth';
 import {
@@ -38,8 +39,11 @@ import {
   readJoinedDatasetOverview,
   syncScoutingEntries,
 } from '@/core/sync/remoteSyncEngine';
+import { createRemoteSyncAdapterForConnection } from '@/core/sync/remoteSyncAdapterFactory';
 import {
   loadPendingScoutNameCollisions,
+  parseCleanupDocumentTargets,
+  parseDatasetCleanupProvisioningArtifact,
   resolveScoutNameCollision,
   updateEventSyncScope,
   type DatasetJoinArtifact,
@@ -68,6 +72,12 @@ export default function RemoteSyncPage() {
   const [datasetOverview, setDatasetOverview] = useState<JoinedDatasetOverview | null>(null);
   const [overviewError, setOverviewError] = useState<string | null>(null);
   const [isOverviewLoading, setIsOverviewLoading] = useState(false);
+  const [cleanupProvisioningArtifactText, setCleanupProvisioningArtifactText] = useState('');
+  const [cleanupTargetsText, setCleanupTargetsText] = useState('');
+  const [cleanupReason, setCleanupReason] = useState('');
+  const [cleanupStatus, setCleanupStatus] = useState<string | null>(null);
+  const [cleanupError, setCleanupError] = useState<string | null>(null);
+  const [isCleanupBusy, setIsCleanupBusy] = useState(false);
 
   const refreshDatasetOverview = useCallback(async () => {
     if (!connection) {
@@ -191,6 +201,111 @@ export default function RemoteSyncPage() {
     }
   };
 
+  const cleanupCapable = Boolean(
+    connection &&
+      datasetOverview?.cleanupCapableDevices.some(device => device.deviceId === connection.deviceId)
+  );
+
+  const handleProvisionCleanupAuthority = async () => {
+    if (!connection) {
+      return;
+    }
+
+    setIsCleanupBusy(true);
+    setCleanupError(null);
+    setCleanupStatus(null);
+    try {
+      const parsed = parseDatasetCleanupProvisioningArtifact(cleanupProvisioningArtifactText);
+      if (!parsed.ok) {
+        throw new Error(parsed.error);
+      }
+      if (
+        parsed.artifact.datasetId !== connection.datasetId ||
+        parsed.artifact.firebase.projectId !== connection.projectId ||
+        parsed.artifact.provisionedDeviceId !== connection.deviceId
+      ) {
+        throw new Error('Cleanup provisioning artifact does not match this joined device.');
+      }
+
+      const adapter = createRemoteSyncAdapterForConnection(connection);
+      await adapter.provisionCleanupAuthority({
+        datasetId: connection.datasetId,
+        deviceId: connection.deviceId,
+        credentialId: parsed.artifact.cleanupCredentialId,
+        credentialSecret: parsed.artifact.cleanupCredentialSecret,
+        credentialExpiresAt: parsed.artifact.cleanupCredentialExpiresAt,
+      });
+      setCleanupProvisioningArtifactText('');
+      setCleanupStatus('This device is now cleanup capable.');
+      await refreshDatasetOverview();
+    } catch (error) {
+      setCleanupError(
+        error instanceof Error ? error.message : 'Cleanup authority could not be provisioned.'
+      );
+    } finally {
+      setIsCleanupBusy(false);
+    }
+  };
+
+  const handleReplicatedCleanup = async () => {
+    if (!connection) {
+      return;
+    }
+
+    setIsCleanupBusy(true);
+    setCleanupError(null);
+    setCleanupStatus(null);
+    try {
+      const targets = parseCleanupDocumentTargets(cleanupTargetsText);
+      if (targets.length === 0) {
+        throw new Error('Enter at least one shared document target.');
+      }
+
+      const adapter = createRemoteSyncAdapterForConnection(connection);
+      const result = await adapter.cleanupCanonicalDocuments({
+        datasetId: connection.datasetId,
+        deviceId: connection.deviceId,
+        targets,
+        ...(cleanupReason.trim() ? { reason: cleanupReason.trim() } : {}),
+      });
+      await syncScoutingEntries(adapter);
+      setCleanupTargetsText('');
+      setCleanupReason('');
+      setCleanupStatus(
+        `Deleted ${result.cleanedDocuments.length} shared document${result.cleanedDocuments.length === 1 ? '' : 's'} with attributed replicated tombstones.`
+      );
+      await refreshDatasetOverview();
+    } catch (error) {
+      setCleanupError(
+        error instanceof Error ? error.message : 'Destructive replicated cleanup failed.'
+      );
+    } finally {
+      setIsCleanupBusy(false);
+    }
+  };
+
+  const handleDisconnect = async () => {
+    if (!connection) {
+      return;
+    }
+
+    setCleanupError(null);
+    try {
+      await createRemoteSyncAdapterForConnection(connection).deprovisionCleanupAuthority({
+        datasetId: connection.datasetId,
+        deviceId: connection.deviceId,
+      });
+    } catch (error) {
+      setCleanupError(
+        error instanceof Error
+          ? `Cleanup authority could not be removed: ${error.message}`
+          : 'Cleanup authority could not be removed before disconnecting.'
+      );
+      return;
+    }
+    clearConnection();
+  };
+
   return (
     <main className="min-h-screen w-full bg-background p-4 text-foreground md:p-6">
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-5">
@@ -222,7 +337,7 @@ export default function RemoteSyncPage() {
               isSyncing={isSyncing}
               onSyncNow={() => void handleSyncNow()}
               onCollisionResolved={() => void handleSyncNow()}
-              onDisconnect={clearConnection}
+              onDisconnect={() => void handleDisconnect()}
             />
             {isOverviewLoading && !datasetOverview && (
               <Alert>
@@ -237,6 +352,30 @@ export default function RemoteSyncPage() {
               </Alert>
             )}
             {datasetOverview && <JoinedDatasetOverviewPanel overview={datasetOverview} />}
+            <CleanupAuthorityPanel
+              cleanupCapable={cleanupCapable}
+              cleanupProvisioningArtifactText={cleanupProvisioningArtifactText}
+              cleanupTargetsText={cleanupTargetsText}
+              cleanupReason={cleanupReason}
+              busy={isCleanupBusy}
+              onCleanupProvisioningArtifactTextChange={setCleanupProvisioningArtifactText}
+              onCleanupTargetsTextChange={setCleanupTargetsText}
+              onCleanupReasonChange={setCleanupReason}
+              onProvision={() => void handleProvisionCleanupAuthority()}
+              onCleanup={() => void handleReplicatedCleanup()}
+            />
+            {cleanupStatus && (
+              <Alert>
+                <AlertTitle>Cleanup status</AlertTitle>
+                <AlertDescription>{cleanupStatus}</AlertDescription>
+              </Alert>
+            )}
+            {cleanupError && (
+              <Alert variant="destructive">
+                <AlertTitle>Cleanup blocked</AlertTitle>
+                <AlertDescription>{cleanupError}</AlertDescription>
+              </Alert>
+            )}
           </>
         ) : (
           <Alert>
@@ -544,6 +683,9 @@ function JoinedDatasetPanel({
               Device {connection.deviceDisplayName} / {formatEventSyncScope(connection)} /{' '}
               {pendingWrites} queued change{pendingWrites === 1 ? '' : 's'} /{' '}
               {formatQueueState(queueState)}
+            </p>
+            <p className="font-mono text-xs text-muted-foreground">
+              Device ID: {connection.deviceId}
             </p>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">

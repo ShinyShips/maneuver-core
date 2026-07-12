@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import { Copy, Database, Download, KeyRound, PlugZap, QrCode, RefreshCw } from 'lucide-react';
+import { Copy, Database, Download, KeyRound, PlugZap, QrCode, RefreshCw, ShieldCheck } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { Alert, AlertDescription, AlertTitle } from '@/core/components/ui/alert';
 import { Button } from '@/core/components/ui/button';
@@ -10,6 +10,7 @@ import {
   createFirebaseRemoteSyncAdapter,
   getFirebaseRemoteSyncConfigFromEnv,
   type DatasetCleanupCredential,
+  type DatasetCleanupProvisioningArtifact,
   type DatasetJoinArtifact,
   type DatasetJoinCredential,
   type DatasetOperatorRecoveryArtifact,
@@ -35,12 +36,24 @@ export function UtilitiesApp() {
   const [teamNumber, setTeamNumber] = useState('');
   const [season, setSeason] = useState(new Date().getFullYear().toString());
   const [scopeKey, setScopeKey] = useState('');
+  const [cleanupDeviceId, setCleanupDeviceId] = useState('');
   const [created, setCreated] = useState<CreatedDatasetState | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
 
   const artifactJson = created ? JSON.stringify(created.artifact, null, 2) : '';
+  const cleanupProvisioningArtifactJson =
+    created && cleanupDeviceId.trim()
+      ? JSON.stringify(
+          {
+            ...created.recoveryArtifact,
+            provisionedDeviceId: cleanupDeviceId.trim(),
+          } satisfies DatasetCleanupProvisioningArtifact,
+          null,
+          2
+        )
+      : '';
   const isConfigured = Boolean(config);
   const isConnected = Boolean(adapter);
 
@@ -103,6 +116,7 @@ export function UtilitiesApp() {
         datasetName: dataset.displayName,
         cleanupCredentialId: cleanupCredential.credentialId,
         cleanupCredentialSecret: cleanupCredential.secret,
+        cleanupCredentialExpiresAt: cleanupCredential.expiresAt,
         firebase: config.firebase,
         firestoreEmulator: config.firestoreEmulator,
       };
@@ -161,6 +175,21 @@ export function UtilitiesApp() {
     anchor.click();
     URL.revokeObjectURL(url);
     setStatus('Operator recovery artifact downloaded.');
+  };
+
+  const handleDownloadCleanupProvisioningArtifact = () => {
+    if (!created || !cleanupProvisioningArtifactJson) {
+      return;
+    }
+
+    const blob = new Blob([cleanupProvisioningArtifactJson], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `${toFileSlug(created.dataset.displayName)}-cleanup-device.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    setStatus('Device-specific cleanup provisioning artifact downloaded.');
   };
 
   return (
@@ -342,6 +371,15 @@ export function UtilitiesApp() {
                   <KeyRound />
                   Recovery
                 </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleDownloadCleanupProvisioningArtifact}
+                  disabled={!cleanupProvisioningArtifactJson}
+                >
+                  <ShieldCheck />
+                  Cleanup device
+                </Button>
               </div>
             </div>
             <Textarea
@@ -349,6 +387,20 @@ export function UtilitiesApp() {
               readOnly
               value={artifactJson}
               placeholder="{}"
+            />
+            <Field label="Cleanup-capable device ID" htmlFor="cleanup-device-id">
+              <Input
+                id="cleanup-device-id"
+                value={cleanupDeviceId}
+                onChange={event => setCleanupDeviceId(event.target.value)}
+                placeholder="Paste the joined device ID shown in Remote sync"
+              />
+            </Field>
+            <Textarea
+              className="min-h-48 resize-y font-mono text-xs"
+              readOnly
+              value={cleanupProvisioningArtifactJson}
+              placeholder="Enter a device ID to create a device-specific cleanup artifact."
             />
           </div>
         </section>

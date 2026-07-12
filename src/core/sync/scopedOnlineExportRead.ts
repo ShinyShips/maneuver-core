@@ -6,7 +6,7 @@ import {
   type ScopedOnlineExportSelection,
 } from './eventSyncScope';
 import { loadRemoteSyncConnection } from './remoteSyncConnection';
-import type { RemoteSyncAdapter } from './types';
+import type { RemoteSyncClientAdapter } from './types';
 
 export interface ScopedOnlineScoutingEntriesRead {
   selection: ScopedOnlineExportSelection;
@@ -14,7 +14,7 @@ export interface ScopedOnlineScoutingEntriesRead {
 }
 
 export async function readScopedOnlineScoutingEntries(
-  adapter: RemoteSyncAdapter,
+  adapter: RemoteSyncClientAdapter,
   requestedEventKeys?: readonly string[]
 ): Promise<ScopedOnlineScoutingEntriesRead> {
   const connection = loadRemoteSyncConnection();

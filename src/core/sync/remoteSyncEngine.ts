@@ -1,4 +1,4 @@
-import type { CanonicalSyncChange, JoinedDatasetOverview, RemoteSyncAdapter } from './types';
+import type { CanonicalSyncChange, JoinedDatasetOverview, RemoteSyncClientAdapter } from './types';
 import { db, deleteScoutingEntry, saveScoutingEntry } from '@/core/db/database';
 import type { ScoutingEntryBase } from '@/core/types/scouting-entry';
 import { loadRemoteSyncConnection, type RemoteSyncConnection } from './remoteSyncConnection';
@@ -46,7 +46,7 @@ export interface RemoteSyncRunResult {
 }
 
 export async function readJoinedDatasetOverview(
-  adapterOverride?: RemoteSyncAdapter
+  adapterOverride?: RemoteSyncClientAdapter
 ): Promise<JoinedDatasetOverview> {
   const connection = loadRemoteSyncConnection();
 
@@ -62,7 +62,7 @@ export async function readJoinedDatasetOverview(
 }
 
 export async function syncScoutingEntries(
-  adapterOverride?: RemoteSyncAdapter
+  adapterOverride?: RemoteSyncClientAdapter
 ): Promise<RemoteSyncRunResult> {
   const connection = loadRemoteSyncConnection();
 
@@ -107,7 +107,7 @@ export async function syncScoutingEntries(
 
 async function ensureRemoteDeviceJoined(
   connection: RemoteSyncConnection,
-  adapter: RemoteSyncAdapter
+  adapter: RemoteSyncClientAdapter
 ): Promise<void> {
   await adapter.joinDataset({
     artifact: {
@@ -135,7 +135,7 @@ async function ensureRemoteDeviceJoined(
 
 async function pushQueuedScoutingEntries(
   connection: RemoteSyncConnection,
-  adapter: RemoteSyncAdapter
+  adapter: RemoteSyncClientAdapter
 ): Promise<number> {
   const queueItems = loadRemoteSyncQueueForDataset(connection.datasetId);
 
@@ -160,7 +160,7 @@ async function pushQueuedScoutingEntries(
 
 async function pushQueuedScoutProfiles(
   connection: RemoteSyncConnection,
-  adapter: RemoteSyncAdapter
+  adapter: RemoteSyncClientAdapter
 ): Promise<number> {
   const queueItems = loadScoutProfileQueueForDataset(connection.datasetId);
 
@@ -212,7 +212,7 @@ async function pushQueuedScoutProfiles(
 
 async function pullRemoteChanges(
   connection: RemoteSyncConnection,
-  adapter: RemoteSyncAdapter
+  adapter: RemoteSyncClientAdapter
 ): Promise<{ pulledCount: number; cursor: number }> {
   let cursor = loadSyncCursor(connection.datasetId);
   let pulledCount = 0;

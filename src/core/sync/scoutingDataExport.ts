@@ -5,7 +5,7 @@ import { createRemoteSyncAdapterForConnection } from './remoteSyncAdapterFactory
 import { loadRemoteSyncConnection } from './remoteSyncConnection';
 import { loadRemoteSyncQueue } from './remoteSyncQueue';
 import { readScopedOnlineScoutingEntries } from './scopedOnlineExportRead';
-import type { RemoteSyncAdapter } from './types';
+import type { RemoteSyncClientAdapter } from './types';
 
 const LOCAL_EXPORT_WARNING_STORAGE_KEY = 'maneuver.scoutingExport.localWarningAcknowledged';
 
@@ -21,7 +21,7 @@ export type ScoutingDataExportRequest =
   | { source: 'full-online' };
 
 export interface ScoutingDataExportOptions {
-  adapter?: RemoteSyncAdapter;
+  adapter?: RemoteSyncClientAdapter;
 }
 
 export interface HumanReadableScoutingDataExport {
