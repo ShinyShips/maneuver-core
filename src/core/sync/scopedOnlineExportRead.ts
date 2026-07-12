@@ -5,8 +5,13 @@ import {
   getScopedOnlineExportDefault,
   type ScopedOnlineExportSelection,
 } from './eventSyncScope';
-import { loadRemoteSyncConnection } from './remoteSyncConnection';
+import {
+  createJoinDatasetInputFromConnection,
+  loadRemoteSyncConnection,
+} from './remoteSyncConnection';
 import type { RemoteSyncClientAdapter } from './types';
+import { disconnectRemoteSyncDeviceIfRevoked } from './remoteSyncRevocation';
+import { RemoteSyncDeviceNotJoinedError } from './remoteSyncErrors';
 
 export interface ScopedOnlineScoutingEntriesRead {
   selection: ScopedOnlineExportSelection;
@@ -30,32 +35,44 @@ export async function readScopedOnlineScoutingEntries(
   const entriesById = new Map<string, ScoutingEntryBase<Record<string, unknown>>>();
   let cursor = 0;
   let hasMore = true;
+  let initialJoinAttempted = false;
 
   while (hasMore) {
-    const result = await adapter.pullChanges<ScoutingEntryBase<Record<string, unknown>>>({
-      datasetId: connection.datasetId,
-      afterCursor: cursor,
-      pageSize: 100,
-    });
+    try {
+      const result = await adapter.pullChanges<ScoutingEntryBase<Record<string, unknown>>>({
+        datasetId: connection.datasetId,
+        deviceId: connection.deviceId,
+        afterCursor: cursor,
+        pageSize: 100,
+      });
 
-    for (const change of result.changes) {
-      cursor = Math.max(cursor, change.cursor);
+      for (const change of result.changes) {
+        cursor = Math.max(cursor, change.cursor);
 
-      if (
-        change.documentType !== 'match-scouting-entry' ||
-        !eventSyncScopeIncludes(exportScope, change.document.scopeKey ?? '')
-      ) {
+        if (
+          change.documentType !== 'match-scouting-entry' ||
+          !eventSyncScopeIncludes(exportScope, change.document.scopeKey ?? '')
+        ) {
+          continue;
+        }
+
+        if (change.document.tombstone) {
+          entriesById.delete(change.documentId);
+        } else {
+          entriesById.set(change.documentId, change.document.payload);
+        }
+      }
+
+      hasMore = result.hasMore;
+    } catch (error) {
+      if (error instanceof RemoteSyncDeviceNotJoinedError && !initialJoinAttempted) {
+        initialJoinAttempted = true;
+        await adapter.joinDataset(createJoinDatasetInputFromConnection(connection));
         continue;
       }
-
-      if (change.document.tombstone) {
-        entriesById.delete(change.documentId);
-      } else {
-        entriesById.set(change.documentId, change.document.payload);
-      }
+      disconnectRemoteSyncDeviceIfRevoked(error, connection);
+      throw error;
     }
-
-    hasMore = result.hasMore;
   }
 
   return {

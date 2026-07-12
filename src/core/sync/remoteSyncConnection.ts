@@ -1,4 +1,4 @@
-import type { DatasetJoinArtifact } from './types';
+import type { DatasetJoinArtifact, JoinDatasetInput } from './types';
 import { createEventSyncScope, type EventSyncScope } from './eventSyncScopeModel';
 
 const CONNECTION_STORAGE_KEY = 'maneuver.remoteSync.connection';
@@ -160,6 +160,33 @@ export function saveRemoteSyncConnection(connection: RemoteSyncConnection): void
 
   window.localStorage.setItem(CONNECTION_STORAGE_KEY, JSON.stringify(connection));
   window.dispatchEvent(new CustomEvent('remoteSyncConnectionChanged'));
+}
+
+export function createJoinDatasetInputFromConnection(
+  connection: RemoteSyncConnection
+): JoinDatasetInput {
+  return {
+    artifact: {
+      protocolVersion: 1,
+      backend: connection.backend,
+      datasetId: connection.datasetId,
+      datasetName: connection.datasetName,
+      credentialId: connection.credentialId,
+      credentialSecret: connection.credentialSecret,
+      firebase: connection.firebase,
+      firestoreEmulator: connection.firestoreEmulator,
+      recommendedDefaults: {
+        scopeKey:
+          connection.eventSyncScope.mode === 'selected' &&
+          connection.eventSyncScope.eventKeys.length === 1
+            ? connection.eventSyncScope.eventKeys[0]
+            : undefined,
+        queueMode: 'local-first',
+      },
+    },
+    deviceId: connection.deviceId,
+    deviceDisplayName: connection.deviceDisplayName,
+  };
 }
 
 export function clearRemoteSyncConnection(): void {

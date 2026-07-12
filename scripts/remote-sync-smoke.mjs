@@ -217,6 +217,7 @@ if (useEmulator) {
     }
     const replay = await browserAdapter.pullChanges({
       datasetId: dataset.datasetId,
+      deviceId: 'restore-smoke-client',
       afterCursor: cursorBeforeRestore,
     });
     const restoredDocument = replay.changes.find(
@@ -228,6 +229,117 @@ if (useEmulator) {
     if (restore.restoredDocuments.length !== 260) {
       throw new Error('Firebase server-local restore did not replace the full large dataset.');
     }
+
+    const cleanupCredential = await serverAdapter.createCleanupCredential({
+      datasetId: dataset.datasetId,
+      operatorDeviceId: 'server-local-smoke',
+    });
+    await browserAdapter.joinDataset({
+      artifact,
+      deviceId: 'cleanup-revocation-smoke-client',
+      deviceDisplayName: 'Cleanup revocation smoke client',
+    });
+    await browserAdapter.provisionCleanupAuthority({
+      datasetId: dataset.datasetId,
+      deviceId: 'cleanup-revocation-smoke-client',
+      credentialId: cleanupCredential.credentialId,
+      credentialSecret: cleanupCredential.secret,
+    });
+    await browserAdapter.joinDataset({
+      artifact,
+      deviceId: 'revocation-smoke-target',
+      deviceDisplayName: 'Revocation smoke target',
+    });
+    await browserAdapter.revokeJoinedDevice({
+      datasetId: dataset.datasetId,
+      actorDeviceId: 'cleanup-revocation-smoke-client',
+      targetDeviceId: 'revocation-smoke-target',
+    });
+    await assertRejects(
+      () =>
+        browserAdapter.pushDocuments({
+          datasetId: dataset.datasetId,
+          deviceId: 'revocation-smoke-target',
+          documents: [],
+        }),
+      /revoked/
+    );
+    await assertRejects(
+      () =>
+        browserAdapter.pullChanges({
+          datasetId: dataset.datasetId,
+          deviceId: 'revocation-smoke-target',
+          afterCursor: 0,
+        }),
+      /revoked/
+    );
+    const expiringCleanupCredential = await serverAdapter.createCleanupCredential({
+      datasetId: dataset.datasetId,
+      operatorDeviceId: 'server-local-smoke',
+      expiresAt: Date.now() + 500,
+    });
+    await browserAdapter.joinDataset({
+      artifact,
+      deviceId: 'expiring-cleanup-smoke-client',
+      deviceDisplayName: 'Expiring cleanup smoke client',
+    });
+    await browserAdapter.joinDataset({
+      artifact,
+      deviceId: 'expiry-revocation-smoke-target',
+      deviceDisplayName: 'Expiry revocation smoke target',
+    });
+    await browserAdapter.provisionCleanupAuthority({
+      datasetId: dataset.datasetId,
+      deviceId: 'expiring-cleanup-smoke-client',
+      credentialId: expiringCleanupCredential.credentialId,
+      credentialSecret: expiringCleanupCredential.secret,
+      credentialExpiresAt: expiringCleanupCredential.expiresAt,
+    });
+    await new Promise(resolve => setTimeout(resolve, 600));
+    await assertRejects(
+      () =>
+        browserAdapter.revokeJoinedDevice({
+          datasetId: dataset.datasetId,
+          actorDeviceId: 'expiring-cleanup-smoke-client',
+          targetDeviceId: 'expiry-revocation-smoke-target',
+        }),
+      /does not have cleanup authority/
+    );
+    const globalReset = await serverAdapter.resetDatasetForRejoinServerLocal({
+      datasetId: dataset.datasetId,
+      actorDeviceId: 'server-local-smoke',
+      actorDisplayName: 'Server-local smoke',
+    });
+    if (globalReset.operation !== 'global-rejoin-reset') {
+      throw new Error('Firebase global rejoin reset did not return the distinct reset result.');
+    }
+    await assertRejects(
+      () =>
+        browserAdapter.pullChanges({
+          datasetId: dataset.datasetId,
+          deviceId: 'cleanup-revocation-smoke-client',
+          afterCursor: 0,
+        }),
+      /revoked/
+    );
+    await assertRejects(
+      () =>
+        browserAdapter.joinDataset({
+          artifact,
+          deviceId: 'old-artifact-smoke-client',
+          deviceDisplayName: 'Old artifact smoke client',
+        }),
+      /credential has been revoked/
+    );
+    await browserAdapter.joinDataset({
+      artifact: {
+        ...artifact,
+        credentialId: globalReset.replacementJoinCredential.credentialId,
+        credentialSecret: globalReset.replacementJoinCredential.secret,
+      },
+      deviceId: 'rejoined-after-reset-smoke-client',
+      deviceDisplayName: 'Rejoined after reset smoke client',
+    });
 
     const migrationProjectId = `${projectId}-migration`;
     const migrationConfig = {
@@ -276,6 +388,7 @@ if (useEmulator) {
     });
     const migrationReplay = await migrationBrowserAdapter.pullChanges({
       datasetId: portableSnapshot.dataset.datasetId,
+      deviceId: 'migration-smoke-client',
       afterCursor: 0,
       pageSize: 300,
     });

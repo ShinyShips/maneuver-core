@@ -142,6 +142,11 @@ export interface CleanupCapableDeviceSummary {
   displayName: string;
 }
 
+export interface JoinedDeviceSummary {
+  deviceId: string;
+  displayName: string;
+}
+
 export interface DatasetActorIdentity {
   actorDeviceId: string;
   actorDisplayName: string;
@@ -190,6 +195,7 @@ export type DatasetEventRecord =
 export interface JoinedDatasetOverview {
   datasetId: string;
   summary: DatasetSummarySignals;
+  joinedDevices: JoinedDeviceSummary[];
   cleanupCapableDevices: CleanupCapableDeviceSummary[];
   recentCleanupEvents: CleanupDatasetEventRecord[];
   recentRestoreEvents: SharedRestoreEvent[];
@@ -226,6 +232,32 @@ export interface ProvisionCleanupAuthorityInput {
 export interface DeprovisionCleanupAuthorityInput {
   datasetId: string;
   deviceId: string;
+}
+
+export interface RevokeJoinedDeviceInput {
+  datasetId: string;
+  actorDeviceId: string;
+  targetDeviceId: string;
+}
+
+export interface RevokeJoinedDeviceResult {
+  device: JoinedDeviceIdentity;
+}
+
+export interface ServerLocalRevokeJoinedDeviceInput extends DatasetActorIdentity {
+  datasetId: string;
+  targetDeviceId: string;
+}
+
+export interface ResetDatasetForRejoinServerLocalInput extends DatasetActorIdentity {
+  datasetId: string;
+}
+
+export interface GlobalRejoinResetResult {
+  operation: 'global-rejoin-reset';
+  revokedDeviceIds: string[];
+  revokedJoinCredentialIds: string[];
+  replacementJoinCredential: DatasetJoinCredential;
 }
 
 export interface CleanupAuthorityGrant {
@@ -328,6 +360,7 @@ export interface PushDocumentsResult<TPayload = unknown> {
 
 export interface PullChangesInput {
   datasetId: string;
+  deviceId: string;
   afterCursor: number;
   pageSize?: number;
 }
@@ -342,6 +375,7 @@ export interface RemoteSyncClientAdapter {
   joinDataset(input: JoinDatasetInput): Promise<JoinedDeviceIdentity>;
   provisionCleanupAuthority(input: ProvisionCleanupAuthorityInput): Promise<CleanupAuthorityGrant>;
   deprovisionCleanupAuthority(input: DeprovisionCleanupAuthorityInput): Promise<void>;
+  revokeJoinedDevice(input: RevokeJoinedDeviceInput): Promise<RevokeJoinedDeviceResult>;
   cleanupCanonicalDocuments(
     input: CleanupCanonicalDocumentsInput
   ): Promise<CleanupCanonicalDocumentsResult>;
@@ -362,6 +396,12 @@ export interface RemoteSyncAdminAdapter {
   cleanupCanonicalDocumentsServerLocal(
     input: ServerLocalCleanupCanonicalDocumentsInput
   ): Promise<CleanupCanonicalDocumentsResult>;
+  revokeJoinedDeviceServerLocal(
+    input: ServerLocalRevokeJoinedDeviceInput
+  ): Promise<RevokeJoinedDeviceResult>;
+  resetDatasetForRejoinServerLocal(
+    input: ResetDatasetForRejoinServerLocalInput
+  ): Promise<GlobalRejoinResetResult>;
   createPortableDatasetSnapshotServerLocal(
     input: CreatePortableDatasetSnapshotServerLocalInput
   ): Promise<PortableDatasetSnapshot>;

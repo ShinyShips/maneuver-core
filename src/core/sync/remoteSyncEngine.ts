@@ -1,7 +1,11 @@
 import type { CanonicalSyncChange, JoinedDatasetOverview, RemoteSyncClientAdapter } from './types';
 import { db, deleteScoutingEntry, saveScoutingEntry } from '@/core/db/database';
 import type { ScoutingEntryBase } from '@/core/types/scouting-entry';
-import { loadRemoteSyncConnection, type RemoteSyncConnection } from './remoteSyncConnection';
+import {
+  createJoinDatasetInputFromConnection,
+  loadRemoteSyncConnection,
+  type RemoteSyncConnection,
+} from './remoteSyncConnection';
 import {
   getRemoteSyncQueueHealth,
   loadRemoteSyncQueueForDataset,
@@ -22,6 +26,8 @@ import {
   markScoutProfileQueueItemsAttempted,
   removeScoutProfileQueueItems,
 } from './scoutProfileQueue';
+import { RemoteSyncDeviceRevokedError } from './remoteSyncErrors';
+import { disconnectRemoteSyncDeviceIfRevoked } from './remoteSyncRevocation';
 import {
   createScoutProfileSyncDocumentCandidate,
   reconcileScoutProfile,
@@ -55,10 +61,15 @@ export async function readJoinedDatasetOverview(
   }
 
   const adapter = adapterOverride ?? createRemoteSyncAdapterForConnection(connection);
-  return adapter.getJoinedDatasetOverview({
-    datasetId: connection.datasetId,
-    deviceId: connection.deviceId,
-  });
+  try {
+    return await adapter.getJoinedDatasetOverview({
+      datasetId: connection.datasetId,
+      deviceId: connection.deviceId,
+    });
+  } catch (error) {
+    disconnectRemoteSyncDeviceIfRevoked(error, connection);
+    throw error;
+  }
 }
 
 export async function syncScoutingEntries(
@@ -91,10 +102,11 @@ export async function syncScoutingEntries(
       cursor: finalPullResult.cursor,
     };
   } catch (error) {
+    disconnectRemoteSyncDeviceIfRevoked(error, connection);
     setRemoteSyncQueueHealth({
       ...getRemoteSyncQueueHealth(),
       state:
-        error instanceof ScoutNameCollisionError
+        error instanceof RemoteSyncDeviceRevokedError || error instanceof ScoutNameCollisionError
           ? 'blocked'
           : typeof navigator !== 'undefined' && navigator.onLine
             ? 'error'
@@ -109,28 +121,7 @@ async function ensureRemoteDeviceJoined(
   connection: RemoteSyncConnection,
   adapter: RemoteSyncClientAdapter
 ): Promise<void> {
-  await adapter.joinDataset({
-    artifact: {
-      protocolVersion: 1,
-      backend: connection.backend,
-      datasetId: connection.datasetId,
-      datasetName: connection.datasetName,
-      credentialId: connection.credentialId,
-      credentialSecret: connection.credentialSecret,
-      firebase: connection.firebase,
-      firestoreEmulator: connection.firestoreEmulator,
-      recommendedDefaults: {
-        scopeKey:
-          connection.eventSyncScope.mode === 'selected' &&
-          connection.eventSyncScope.eventKeys.length === 1
-            ? connection.eventSyncScope.eventKeys[0]
-            : undefined,
-        queueMode: 'local-first',
-      },
-    },
-    deviceId: connection.deviceId,
-    deviceDisplayName: connection.deviceDisplayName,
-  });
+  await adapter.joinDataset(createJoinDatasetInputFromConnection(connection));
 }
 
 async function pushQueuedScoutingEntries(
@@ -221,6 +212,7 @@ async function pullRemoteChanges(
   while (hasMore) {
     const result = await adapter.pullChanges<unknown>({
       datasetId: connection.datasetId,
+      deviceId: connection.deviceId,
       afterCursor: cursor,
       pageSize: 100,
     });

@@ -12,12 +12,12 @@ import {
   query,
   runTransaction,
   setDoc,
-  updateDoc,
   where,
   writeBatch,
   type DocumentSnapshot,
   type Firestore,
   type Transaction,
+  type WriteBatch,
 } from 'firebase/firestore';
 import type {
   CanonicalSyncChange,
@@ -35,6 +35,7 @@ import type {
   DatasetHealth,
   DatasetEventRecord,
   GetJoinedDatasetOverviewInput,
+  GlobalRejoinResetResult,
   JoinedDatasetOverview,
   DatasetJoinCredential,
   JoinDatasetInput,
@@ -47,9 +48,13 @@ import type {
   ProvisionCleanupAuthorityInput,
   RemoteSyncAdminAdapter,
   RemoteSyncAdapter,
+  ResetDatasetForRejoinServerLocalInput,
+  RevokeJoinedDeviceInput,
+  RevokeJoinedDeviceResult,
   RestorePortableDatasetSnapshotServerLocalInput,
   RotateJoinCredentialInput,
   ServerLocalCleanupCanonicalDocumentsInput,
+  ServerLocalRevokeJoinedDeviceInput,
   ServerLocalRestoreResult,
   SharedRestoreEvent,
   TeamDataset,
@@ -73,12 +78,15 @@ import {
   selectRecentRestoreEvents,
   type CleanupCapabilityProjection,
 } from '../datasetOverview';
+import { RemoteSyncDeviceNotJoinedError, RemoteSyncDeviceRevokedError } from '../remoteSyncErrors';
 import type { FirebaseRemoteSyncConfig } from './remoteSyncFirebaseConfig';
 import type { ServerLocalSnapshotStore } from './serverLocalSnapshotStore';
 
 interface FirestoreCursorMetadata {
   currentCursor?: number;
 }
+
+type DatasetOperationLockKind = 'restore' | 'membership-reset';
 
 type StoredCredential = (DatasetJoinCredential | DatasetCleanupCredential) & {
   createdByDeviceId: string;
@@ -98,7 +106,9 @@ const SHARED_CLEANUP_EVENTS = 'shared_cleanup_events';
 const METADATA = 'metadata';
 const CURSOR = 'cursor';
 const RESTORE_LOCK = 'restore_lock';
+const MEMBERSHIP_RESET_LOCK = 'membership_reset_lock';
 const RESTORE_DOCUMENTS_PER_BATCH = 200;
+const ADMIN_WRITES_PER_BATCH = 400;
 const SYNC_AUTHORITY_DEVICE_ID = 'maneuver-sync-authority';
 const connectedEmulators = new Set<string>();
 
@@ -165,8 +175,6 @@ class FirebaseRemoteSyncAdapter implements RemoteSyncAdapter {
   }
 
   async createJoinCredential(input: CreateJoinCredentialInput): Promise<DatasetJoinCredential> {
-    await assertDatasetExists(this.firestore, input.datasetId);
-
     const credential: StoredCredential = {
       datasetId: input.datasetId,
       credentialId: crypto.randomUUID(),
@@ -177,10 +185,17 @@ class FirebaseRemoteSyncAdapter implements RemoteSyncAdapter {
       ...(input.expiresAt === undefined ? {} : { expiresAt: input.expiresAt }),
     };
 
-    await setDoc(
-      credentialRef(this.firestore, input.datasetId, credential.credentialId),
-      credential
-    );
+    await runTransaction(this.firestore, async transaction => {
+      const datasetSnapshot = await transaction.get(datasetRef(this.firestore, input.datasetId));
+      await this.assertRemoteSyncMutationUnlocked(transaction, input.datasetId);
+      if (!datasetSnapshot.exists()) {
+        throw new Error(`Remote sync dataset not found: ${input.datasetId}`);
+      }
+      transaction.set(
+        credentialRef(this.firestore, input.datasetId, credential.credentialId),
+        credential
+      );
+    });
 
     return credential;
   }
@@ -211,7 +226,6 @@ class FirebaseRemoteSyncAdapter implements RemoteSyncAdapter {
   async provisionCleanupAuthority(
     input: ProvisionCleanupAuthorityInput
   ): Promise<CleanupAuthorityGrant> {
-    await assertJoinedDevice(this.firestore, input.datasetId, input.deviceId);
     const provisionedAt = Date.now();
     const grant: CleanupAuthorityGrant = {
       datasetId: input.datasetId,
@@ -224,19 +238,26 @@ class FirebaseRemoteSyncAdapter implements RemoteSyncAdapter {
       deviceId: input.deviceId,
       ...(input.credentialExpiresAt === undefined ? {} : { expiresAt: input.credentialExpiresAt }),
     };
-    const batch = writeBatch(this.firestore);
-    batch.set(cleanupAuthorityClaimRef(this.firestore, input.datasetId, input.deviceId), {
-      deviceId: input.deviceId,
-      credentialId: input.credentialId,
-      credentialSecret: input.credentialSecret,
-      provisionedAt,
-      ...(input.credentialExpiresAt === undefined ? {} : { expiresAt: input.credentialExpiresAt }),
+    await runTransaction(this.firestore, async transaction => {
+      const deviceSnapshot = await transaction.get(
+        deviceRef(this.firestore, input.datasetId, input.deviceId)
+      );
+      await this.assertRemoteSyncMutationUnlocked(transaction, input.datasetId);
+      assertJoinedDeviceSnapshot(deviceSnapshot, input.datasetId, input.deviceId);
+      transaction.set(cleanupAuthorityClaimRef(this.firestore, input.datasetId, input.deviceId), {
+        deviceId: input.deviceId,
+        credentialId: input.credentialId,
+        credentialSecret: input.credentialSecret,
+        provisionedAt,
+        ...(input.credentialExpiresAt === undefined
+          ? {}
+          : { expiresAt: input.credentialExpiresAt }),
+      });
+      transaction.set(
+        publicCleanupDeviceRef(this.firestore, input.datasetId, input.deviceId),
+        cleanupCapability
+      );
     });
-    batch.set(
-      publicCleanupDeviceRef(this.firestore, input.datasetId, input.deviceId),
-      cleanupCapability
-    );
-    await batch.commit();
     return grant;
   }
 
@@ -245,6 +266,20 @@ class FirebaseRemoteSyncAdapter implements RemoteSyncAdapter {
     batch.delete(cleanupAuthorityClaimRef(this.firestore, input.datasetId, input.deviceId));
     batch.delete(publicCleanupDeviceRef(this.firestore, input.datasetId, input.deviceId));
     await batch.commit();
+  }
+
+  async revokeJoinedDevice(input: RevokeJoinedDeviceInput): Promise<RevokeJoinedDeviceResult> {
+    await assertJoinedDevice(this.firestore, input.datasetId, input.actorDeviceId);
+    const capabilitySnapshot = await getDoc(
+      publicCleanupDeviceRef(this.firestore, input.datasetId, input.actorDeviceId)
+    );
+    const capability = capabilitySnapshot.data() as CleanupCapabilityProjection | undefined;
+    if (!capability || (capability.expiresAt !== undefined && capability.expiresAt <= Date.now())) {
+      throw new Error(
+        `Remote sync device ${input.actorDeviceId} does not have cleanup authority.`
+      );
+    }
+    return this.commitJoinedDeviceRevocation(input.datasetId, input.targetDeviceId);
   }
 
   async cleanupCanonicalDocuments(
@@ -280,16 +315,102 @@ class FirebaseRemoteSyncAdapter implements RemoteSyncAdapter {
     );
   }
 
+  async revokeJoinedDeviceServerLocal(
+    input: ServerLocalRevokeJoinedDeviceInput
+  ): Promise<RevokeJoinedDeviceResult> {
+    this.requireServerLocalCapability('Server-local device revocation');
+    return this.commitJoinedDeviceRevocation(input.datasetId, input.targetDeviceId);
+  }
+
+  async resetDatasetForRejoinServerLocal(
+    input: ResetDatasetForRejoinServerLocalInput
+  ): Promise<GlobalRejoinResetResult> {
+    this.requireServerLocalCapability('Global rejoin reset');
+    const operationId = crypto.randomUUID();
+    await this.acquireDatasetOperationLock(input.datasetId, operationId, 'membership-reset');
+    try {
+      const [deviceSnapshots, credentialSnapshots] = await Promise.all([
+        getDocs(collection(datasetRef(this.firestore, input.datasetId), DEVICES)),
+        getDocs(collection(datasetRef(this.firestore, input.datasetId), CREDENTIALS)),
+      ]);
+      const revokedAt = Date.now();
+      const activeDevices = deviceSnapshots.docs
+        .map(snapshot => snapshot.data() as JoinedDeviceIdentity)
+        .filter(device => !device.revokedAt);
+      const activeJoinCredentials = credentialSnapshots.docs
+        .map(snapshot => snapshot.data() as StoredCredential)
+        .filter(credential => credential.credentialKind === 'join' && !credential.revokedAt);
+      const replacementJoinCredential: StoredCredential = {
+        datasetId: input.datasetId,
+        credentialId: crypto.randomUUID(),
+        credentialKind: 'join',
+        secret: crypto.randomUUID(),
+        createdAt: revokedAt,
+        createdByDeviceId: input.actorDeviceId,
+      };
+      const activeDeviceIds = new Set(activeDevices.map(device => device.deviceId));
+      const operationGroups: FirestoreBatchOperationGroup[] = deviceSnapshots.docs.map(snapshot => {
+        const device = snapshot.data() as JoinedDeviceIdentity;
+        return {
+          writeCount: activeDeviceIds.has(device.deviceId) ? 3 : 2,
+          apply: batch => {
+            if (activeDeviceIds.has(device.deviceId)) {
+              batch.set(deviceRef(this.firestore, input.datasetId, device.deviceId), {
+                ...device,
+                revokedAt,
+              });
+            }
+            batch.delete(cleanupAuthorityClaimRef(this.firestore, input.datasetId, device.deviceId));
+            batch.delete(publicCleanupDeviceRef(this.firestore, input.datasetId, device.deviceId));
+          },
+        };
+      });
+      operationGroups.push(
+        ...activeJoinCredentials.map(credential => ({
+          writeCount: 1,
+          apply: (batch: WriteBatch) =>
+            batch.set(credentialRef(this.firestore, input.datasetId, credential.credentialId), {
+              ...credential,
+              revokedAt,
+            }),
+        })),
+        {
+          writeCount: 1,
+          apply: batch =>
+            batch.set(
+              credentialRef(
+                this.firestore,
+                input.datasetId,
+                replacementJoinCredential.credentialId
+              ),
+              replacementJoinCredential
+            ),
+        }
+      );
+      await commitFirestoreBatchOperationGroups(this.firestore, operationGroups);
+      await this.releaseDatasetOperationLock(input.datasetId, operationId, 'membership-reset');
+      return {
+        operation: 'global-rejoin-reset',
+        revokedDeviceIds: activeDevices.map(device => device.deviceId),
+        revokedJoinCredentialIds: activeJoinCredentials.map(credential => credential.credentialId),
+        replacementJoinCredential,
+      };
+    } catch (error) {
+      await this.markDatasetOperationLockFailed(input.datasetId, operationId, 'membership-reset');
+      throw error;
+    }
+  }
+
   async createPortableDatasetSnapshotServerLocal(
     input: CreatePortableDatasetSnapshotServerLocalInput
   ): Promise<PortableDatasetSnapshot> {
     this.requireServerLocalCapability('Portable dataset snapshot creation');
     const operationId = crypto.randomUUID();
-    await this.acquireDatasetRestoreLock(input.datasetId, operationId);
+    await this.acquireDatasetOperationLock(input.datasetId, operationId, 'restore');
     try {
       return await this.createPortableDatasetSnapshotWhileLocked(input);
     } finally {
-      await this.releaseDatasetRestoreLock(input.datasetId, operationId);
+      await this.releaseDatasetOperationLock(input.datasetId, operationId, 'restore');
     }
   }
 
@@ -361,7 +482,7 @@ class FirebaseRemoteSyncAdapter implements RemoteSyncAdapter {
     let restorePublished = false;
     let restoreWritesStarted = false;
     let safetySnapshot: PortableDatasetSnapshot | undefined;
-    await this.acquireDatasetRestoreLock(input.datasetId, operationId);
+    await this.acquireDatasetOperationLock(input.datasetId, operationId, 'restore');
     try {
       const targetDatasetSnapshot = await getDoc(datasetRef(this.firestore, input.datasetId));
       const targetDataset = targetDatasetSnapshot.data() as TeamDataset | undefined;
@@ -458,31 +579,48 @@ class FirebaseRemoteSyncAdapter implements RemoteSyncAdapter {
     } finally {
       if (!restorePublished) {
         if (restoreWritesStarted) {
-          await this.markDatasetRestoreLockFailed(input.datasetId, operationId);
+          await this.markDatasetOperationLockFailed(input.datasetId, operationId, 'restore');
         } else {
-          await this.releaseDatasetRestoreLock(input.datasetId, operationId);
+          await this.releaseDatasetOperationLock(input.datasetId, operationId, 'restore');
         }
       }
     }
   }
 
-  private async acquireDatasetRestoreLock(datasetId: string, operationId: string): Promise<void> {
+  private async acquireDatasetOperationLock(
+    datasetId: string,
+    operationId: string,
+    kind: DatasetOperationLockKind
+  ): Promise<void> {
     await runTransaction(this.firestore, async transaction => {
-      const reference = restoreLockRef(this.firestore, datasetId);
+      const reference = datasetOperationLockRef(this.firestore, datasetId, kind);
+      const otherKind: DatasetOperationLockKind =
+        kind === 'restore' ? 'membership-reset' : 'restore';
       const snapshot = await transaction.get(reference);
+      const otherSnapshot = await transaction.get(
+        datasetOperationLockRef(this.firestore, datasetId, otherKind)
+      );
       if (snapshot.exists() && snapshot.data()?.status !== 'failed') {
-        throw new Error(`Remote sync dataset ${datasetId} already has a recovery action running.`);
+        throw new Error(
+          `Remote sync dataset ${datasetId} already has a ${datasetOperationLabel(kind)} running.`
+        );
+      }
+      if (otherSnapshot.exists()) {
+        throw new Error(
+          `Remote sync dataset ${datasetId} has a ${datasetOperationLabel(otherKind)} running.`
+        );
       }
       transaction.set(reference, { operationId, acquiredAt: Date.now(), status: 'active' });
     });
   }
 
-  private async markDatasetRestoreLockFailed(
+  private async markDatasetOperationLockFailed(
     datasetId: string,
-    operationId: string
+    operationId: string,
+    kind: DatasetOperationLockKind
   ): Promise<void> {
     await runTransaction(this.firestore, async transaction => {
-      const reference = restoreLockRef(this.firestore, datasetId);
+      const reference = datasetOperationLockRef(this.firestore, datasetId, kind);
       const snapshot = await transaction.get(reference);
       if (snapshot.data()?.operationId === operationId) {
         transaction.set(reference, {
@@ -494,9 +632,13 @@ class FirebaseRemoteSyncAdapter implements RemoteSyncAdapter {
     });
   }
 
-  private async releaseDatasetRestoreLock(datasetId: string, operationId: string): Promise<void> {
+  private async releaseDatasetOperationLock(
+    datasetId: string,
+    operationId: string,
+    kind: DatasetOperationLockKind
+  ): Promise<void> {
     await runTransaction(this.firestore, async transaction => {
-      const reference = restoreLockRef(this.firestore, datasetId);
+      const reference = datasetOperationLockRef(this.firestore, datasetId, kind);
       const snapshot = await transaction.get(reference);
       if (snapshot.data()?.operationId === operationId) {
         transaction.delete(reference);
@@ -504,13 +646,19 @@ class FirebaseRemoteSyncAdapter implements RemoteSyncAdapter {
     });
   }
 
-  private async assertDatasetMutationUnlocked(
+  private async assertRemoteSyncMutationUnlocked(
     transaction: Transaction,
     datasetId: string
   ): Promise<void> {
-    const snapshot = await transaction.get(restoreLockRef(this.firestore, datasetId));
-    if (snapshot.exists()) {
-      throw new Error(`Remote sync dataset ${datasetId} has a recovery action running.`);
+    for (const kind of ['restore', 'membership-reset'] as const) {
+      const snapshot = await transaction.get(
+        datasetOperationLockRef(this.firestore, datasetId, kind)
+      );
+      if (snapshot.exists()) {
+        throw new Error(
+          `Remote sync dataset ${datasetId} has a ${datasetOperationLabel(kind)} running.`
+        );
+      }
     }
   }
 
@@ -543,7 +691,7 @@ class FirebaseRemoteSyncAdapter implements RemoteSyncAdapter {
       ).values(),
     ];
     return runTransaction(this.firestore, async transaction => {
-      await this.assertDatasetMutationUnlocked(transaction, datasetId);
+      await this.assertRemoteSyncMutationUnlocked(transaction, datasetId);
       const cursorSnapshot = await transaction.get(cursorRef(this.firestore, datasetId));
       const cursorMetadata = cursorSnapshot.data() as FirestoreCursorMetadata | undefined;
       const targetReferences = uniqueTargets.map(target =>
@@ -596,11 +744,35 @@ class FirebaseRemoteSyncAdapter implements RemoteSyncAdapter {
   }
 
   async rotateJoinCredential(input: RotateJoinCredentialInput): Promise<DatasetJoinCredential> {
-    await updateDoc(credentialRef(this.firestore, input.datasetId, input.previousCredentialId), {
-      revokedAt: Date.now(),
+    const rotatedAt = Date.now();
+    const replacement: StoredCredential = {
+      datasetId: input.datasetId,
+      credentialId: crypto.randomUUID(),
+      credentialKind: 'join',
+      secret: crypto.randomUUID(),
+      createdAt: rotatedAt,
+      createdByDeviceId: input.operatorDeviceId,
+      ...(input.expiresAt === undefined ? {} : { expiresAt: input.expiresAt }),
+    };
+    await runTransaction(this.firestore, async transaction => {
+      const previousReference = credentialRef(
+        this.firestore,
+        input.datasetId,
+        input.previousCredentialId
+      );
+      const previousSnapshot = await transaction.get(previousReference);
+      await this.assertRemoteSyncMutationUnlocked(transaction, input.datasetId);
+      const previous = previousSnapshot.data() as StoredCredential | undefined;
+      if (!previous || previous.credentialKind !== 'join') {
+        throw new Error('Previous join credential not found.');
+      }
+      transaction.set(previousReference, { ...previous, revokedAt: rotatedAt });
+      transaction.set(
+        credentialRef(this.firestore, input.datasetId, replacement.credentialId),
+        replacement
+      );
     });
-
-    return this.createJoinCredential(input);
+    return replacement;
   }
 
   async recordDatasetEvent(input: DatasetEventRecord): Promise<DatasetEventRecord> {
@@ -621,32 +793,6 @@ class FirebaseRemoteSyncAdapter implements RemoteSyncAdapter {
   }
 
   async joinDataset(input: JoinDatasetInput): Promise<JoinedDeviceIdentity> {
-    const credentialSnapshot = await getDoc(
-      credentialRef(this.firestore, input.artifact.datasetId, input.artifact.credentialId)
-    );
-
-    if (!credentialSnapshot.exists()) {
-      throw new Error('Dataset join credential not found.');
-    }
-
-    const credential = credentialSnapshot.data() as StoredCredential;
-
-    if (credential.credentialKind !== 'join') {
-      throw new Error('Dataset credential is not valid for joining.');
-    }
-
-    if (credential.revokedAt) {
-      throw new Error('Dataset join credential has been revoked.');
-    }
-
-    if (credential.expiresAt && credential.expiresAt <= Date.now()) {
-      throw new Error('Dataset join credential has expired.');
-    }
-
-    if (credential.secret !== input.artifact.credentialSecret) {
-      throw new Error('Dataset join credential secret does not match.');
-    }
-
     const identity: JoinedDeviceIdentity = {
       datasetId: input.artifact.datasetId,
       deviceId: input.deviceId,
@@ -654,7 +800,36 @@ class FirebaseRemoteSyncAdapter implements RemoteSyncAdapter {
       joinedAt: Date.now(),
     };
 
-    await setDoc(deviceRef(this.firestore, identity.datasetId, identity.deviceId), identity);
+    await runTransaction(this.firestore, async transaction => {
+      const existingDeviceSnapshot = await transaction.get(
+        deviceRef(this.firestore, input.artifact.datasetId, input.deviceId)
+      );
+      const credentialSnapshot = await transaction.get(
+        credentialRef(this.firestore, input.artifact.datasetId, input.artifact.credentialId)
+      );
+      await this.assertRemoteSyncMutationUnlocked(transaction, input.artifact.datasetId);
+      const existingDevice = existingDeviceSnapshot.data() as JoinedDeviceIdentity | undefined;
+      if (existingDevice?.revokedAt) {
+        throw new RemoteSyncDeviceRevokedError(input.artifact.datasetId, input.deviceId);
+      }
+      if (!credentialSnapshot.exists()) {
+        throw new Error('Dataset join credential not found.');
+      }
+      const credential = credentialSnapshot.data() as StoredCredential;
+      if (credential.credentialKind !== 'join') {
+        throw new Error('Dataset credential is not valid for joining.');
+      }
+      if (credential.revokedAt) {
+        throw new Error('Dataset join credential has been revoked.');
+      }
+      if (credential.expiresAt && credential.expiresAt <= Date.now()) {
+        throw new Error('Dataset join credential has expired.');
+      }
+      if (credential.secret !== input.artifact.credentialSecret) {
+        throw new Error('Dataset join credential secret does not match.');
+      }
+      transaction.set(deviceRef(this.firestore, identity.datasetId, identity.deviceId), identity);
+    });
 
     return identity;
   }
@@ -662,10 +837,12 @@ class FirebaseRemoteSyncAdapter implements RemoteSyncAdapter {
   async pushDocuments<TPayload = unknown>(
     input: PushDocumentsInput<TPayload>
   ): Promise<PushDocumentsResult<TPayload>> {
-    await assertJoinedDevice(this.firestore, input.datasetId, input.deviceId);
-
     return runTransaction(this.firestore, async transaction => {
-      await this.assertDatasetMutationUnlocked(transaction, input.datasetId);
+      await this.assertRemoteSyncMutationUnlocked(transaction, input.datasetId);
+      const deviceSnapshot = await transaction.get(
+        deviceRef(this.firestore, input.datasetId, input.deviceId)
+      );
+      assertJoinedDeviceSnapshot(deviceSnapshot, input.datasetId, input.deviceId);
       const cursorSnapshot = await transaction.get(cursorRef(this.firestore, input.datasetId));
       const cursorMetadata = cursorSnapshot.data() as FirestoreCursorMetadata | undefined;
       const documentReferences = input.documents.map(documentCandidate =>
@@ -771,6 +948,7 @@ class FirebaseRemoteSyncAdapter implements RemoteSyncAdapter {
   async pullChanges<TPayload = unknown>(
     input: PullChangesInput
   ): Promise<PullChangesResult<TPayload>> {
+    await assertJoinedDevice(this.firestore, input.datasetId, input.deviceId);
     const pageSize = input.pageSize ?? 100;
     const cursorSnapshot = await getDoc(cursorRef(this.firestore, input.datasetId));
     const publishedCursor =
@@ -883,11 +1061,55 @@ class FirebaseRemoteSyncAdapter implements RemoteSyncAdapter {
         createdAt: dataset.createdAt,
         lastChangedAt: latestChange?.changedAt,
       },
+      joinedDevices: deviceSnapshots.docs
+        .map(snapshot => snapshot.data() as JoinedDeviceIdentity)
+        .filter(identity => !identity.revokedAt)
+        .map(identity => ({ deviceId: identity.deviceId, displayName: identity.displayName }))
+        .sort((left, right) => left.displayName.localeCompare(right.displayName)),
       cleanupCapableDevices,
       recentCleanupEvents,
       recentRestoreEvents,
       checkedAt: Date.now(),
     };
+  }
+
+  private async commitJoinedDeviceRevocation(
+    datasetId: string,
+    targetDeviceId: string
+  ): Promise<RevokeJoinedDeviceResult> {
+    const target = await assertJoinedDevice(this.firestore, datasetId, targetDeviceId);
+    const revokedDevice = { ...target, revokedAt: Date.now() };
+    const batch = writeBatch(this.firestore);
+    batch.set(deviceRef(this.firestore, datasetId, targetDeviceId), revokedDevice);
+    batch.delete(cleanupAuthorityClaimRef(this.firestore, datasetId, targetDeviceId));
+    batch.delete(publicCleanupDeviceRef(this.firestore, datasetId, targetDeviceId));
+    await batch.commit();
+    return { device: revokedDevice };
+  }
+}
+
+interface FirestoreBatchOperationGroup {
+  writeCount: number;
+  apply: (batch: WriteBatch) => void;
+}
+
+async function commitFirestoreBatchOperationGroups(
+  firestore: Firestore,
+  groups: FirestoreBatchOperationGroup[]
+): Promise<void> {
+  let batch = writeBatch(firestore);
+  let writeCount = 0;
+  for (const group of groups) {
+    if (writeCount > 0 && writeCount + group.writeCount > ADMIN_WRITES_PER_BATCH) {
+      await batch.commit();
+      batch = writeBatch(firestore);
+      writeCount = 0;
+    }
+    group.apply(batch);
+    writeCount += group.writeCount;
+  }
+  if (writeCount > 0) {
+    await batch.commit();
   }
 }
 
@@ -901,6 +1123,24 @@ function cursorRef(firestore: Firestore, datasetId: string) {
 
 function restoreLockRef(firestore: Firestore, datasetId: string) {
   return doc(datasetRef(firestore, datasetId), METADATA, RESTORE_LOCK);
+}
+
+function membershipResetLockRef(firestore: Firestore, datasetId: string) {
+  return doc(datasetRef(firestore, datasetId), METADATA, MEMBERSHIP_RESET_LOCK);
+}
+
+function datasetOperationLockRef(
+  firestore: Firestore,
+  datasetId: string,
+  kind: DatasetOperationLockKind
+) {
+  return kind === 'restore'
+    ? restoreLockRef(firestore, datasetId)
+    : membershipResetLockRef(firestore, datasetId);
+}
+
+function datasetOperationLabel(kind: DatasetOperationLockKind): string {
+  return kind === 'restore' ? 'recovery action' : 'membership reset';
 }
 
 function canonicalDocumentRef(
@@ -963,14 +1203,22 @@ async function assertJoinedDevice(
 ): Promise<JoinedDeviceIdentity> {
   const snapshot = await getDoc(deviceRef(firestore, datasetId, deviceId));
 
+  return assertJoinedDeviceSnapshot(snapshot, datasetId, deviceId);
+}
+
+function assertJoinedDeviceSnapshot(
+  snapshot: DocumentSnapshot,
+  datasetId: string,
+  deviceId: string
+): JoinedDeviceIdentity {
   if (!snapshot.exists()) {
-    throw new Error(`Remote sync device is not joined to dataset ${datasetId}.`);
+    throw new RemoteSyncDeviceNotJoinedError(datasetId, deviceId);
   }
 
   const identity = snapshot.data() as JoinedDeviceIdentity;
 
   if (identity.revokedAt) {
-    throw new Error(`Remote sync device has been revoked for dataset ${datasetId}.`);
+    throw new RemoteSyncDeviceRevokedError(datasetId, deviceId);
   }
 
   return identity;

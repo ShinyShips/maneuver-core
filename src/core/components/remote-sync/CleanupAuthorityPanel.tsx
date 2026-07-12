@@ -12,9 +12,13 @@ import {
 import { Input } from '@/core/components/ui/input';
 import { Label } from '@/core/components/ui/label';
 import { Textarea } from '@/core/components/ui/textarea';
+import type { JoinedDeviceSummary } from '@/core/sync';
 
 export interface CleanupAuthorityPanelProps {
   cleanupCapable: boolean;
+  currentDeviceId: string;
+  joinedDevices: JoinedDeviceSummary[];
+  revocationTargetDeviceId: string;
   cleanupProvisioningArtifactText: string;
   cleanupTargetsText: string;
   cleanupReason: string;
@@ -22,12 +26,17 @@ export interface CleanupAuthorityPanelProps {
   onCleanupProvisioningArtifactTextChange: (value: string) => void;
   onCleanupTargetsTextChange: (value: string) => void;
   onCleanupReasonChange: (value: string) => void;
+  onRevocationTargetDeviceIdChange: (value: string) => void;
   onProvision: () => void;
   onCleanup: () => void;
+  onRevokeDevice: () => void;
 }
 
 export function CleanupAuthorityPanel({
   cleanupCapable,
+  currentDeviceId,
+  joinedDevices,
+  revocationTargetDeviceId,
   cleanupProvisioningArtifactText,
   cleanupTargetsText,
   cleanupReason,
@@ -35,9 +44,12 @@ export function CleanupAuthorityPanel({
   onCleanupProvisioningArtifactTextChange,
   onCleanupTargetsTextChange,
   onCleanupReasonChange,
+  onRevocationTargetDeviceIdChange,
   onProvision,
   onCleanup,
+  onRevokeDevice,
 }: CleanupAuthorityPanelProps) {
+  const revocationTargets = joinedDevices.filter(device => device.deviceId !== currentDeviceId);
   return (
     <Card className="rounded-md">
       <CardHeader>
@@ -116,6 +128,38 @@ export function CleanupAuthorityPanel({
               onClick={onCleanup}
             >
               Delete selected shared documents
+            </Button>
+            <Alert variant="destructive">
+              <AlertTitle>Revoke joined device</AlertTitle>
+              <AlertDescription>
+                The selected device will lose Remote sync access and its queued remote writes will
+                be discarded when it next connects. Its local scouting data and ordinary app use
+                remain available.
+              </AlertDescription>
+            </Alert>
+            <div className="grid gap-2">
+              <Label htmlFor="revocation-target-device">Joined device</Label>
+              <select
+                id="revocation-target-device"
+                className="border-input bg-background h-9 rounded-md border px-3 text-sm"
+                value={revocationTargetDeviceId}
+                onChange={event => onRevocationTargetDeviceIdChange(event.target.value)}
+              >
+                <option value="">Select a device</option>
+                {revocationTargets.map(device => (
+                  <option key={device.deviceId} value={device.deviceId}>
+                    {device.displayName} ({device.deviceId})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={busy || !revocationTargetDeviceId}
+              onClick={onRevokeDevice}
+            >
+              Revoke selected device
             </Button>
           </>
         )}

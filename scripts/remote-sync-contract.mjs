@@ -192,6 +192,7 @@ import {
   loadPendingScoutNameCollisions,
   loadRemoteSyncConnection,
   loadRemoteSyncQueue,
+  loadScoutProfileQueue,
   parseDatasetCleanupProvisioningArtifact,
   readScopedOnlineScoutingEntries,
   resolveScoutNameCollision,
@@ -1343,6 +1344,9 @@ async function runContract(): Promise<void> {
   const ordinaryCleanupMarkup = renderToStaticMarkup(
     createElement(CleanupAuthorityPanel, {
       cleanupCapable: false,
+      currentDeviceId: 'ordinary-device',
+      joinedDevices: [],
+      revocationTargetDeviceId: '',
       cleanupProvisioningArtifactText: '',
       cleanupTargetsText: '',
       cleanupReason: '',
@@ -1350,15 +1354,17 @@ async function runContract(): Promise<void> {
       onCleanupProvisioningArtifactTextChange: () => undefined,
       onCleanupTargetsTextChange: () => undefined,
       onCleanupReasonChange: () => undefined,
+      onRevocationTargetDeviceIdChange: () => undefined,
       onProvision: () => undefined,
       onCleanup: () => undefined,
+      onRevokeDevice: () => undefined,
     })
   );
   assert.match(ordinaryCleanupMarkup, /Provision cleanup authority/);
   assert.match(ordinaryCleanupMarkup, /Cleanup provisioning artifact/);
   assert.doesNotMatch(
     ordinaryCleanupMarkup,
-    /Delete selected shared documents/,
+    /Delete selected shared documents|Revoke selected device/,
     'ordinary devices do not receive destructive shared controls'
   );
   const recoveryArtifactWithoutDevice = {
@@ -1390,6 +1396,12 @@ async function runContract(): Promise<void> {
   const privilegedCleanupMarkup = renderToStaticMarkup(
     createElement(CleanupAuthorityPanel, {
       cleanupCapable: true,
+      currentDeviceId: joinedDeviceId,
+      joinedDevices: [
+        { deviceId: joinedDeviceId, displayName: 'client-a' },
+        { deviceId: 'ordinary-cleanup-device', displayName: 'Ordinary cleanup device' },
+      ],
+      revocationTargetDeviceId: 'ordinary-cleanup-device',
       cleanupProvisioningArtifactText: '',
       cleanupTargetsText: 'match-scouting-entry|2026miket::qm1::3314::red',
       cleanupReason: 'Invalid entry',
@@ -1397,14 +1409,24 @@ async function runContract(): Promise<void> {
       onCleanupProvisioningArtifactTextChange: () => undefined,
       onCleanupTargetsTextChange: () => undefined,
       onCleanupReasonChange: () => undefined,
+      onRevocationTargetDeviceIdChange: () => undefined,
       onProvision: () => undefined,
       onCleanup: () => undefined,
+      onRevokeDevice: () => undefined,
     })
   );
   assert.match(privilegedCleanupMarkup, /Cleanup authority active/);
   assert.match(privilegedCleanupMarkup, /Delete selected shared documents/);
   assert.match(privilegedCleanupMarkup, /replicated tombstones/);
   assert.match(privilegedCleanupMarkup, /does not change this device&#x27;s Event sync scope/);
+  assert.match(privilegedCleanupMarkup, /Revoke joined device/);
+  assert.match(privilegedCleanupMarkup, /Ordinary cleanup device/);
+  assert.match(privilegedCleanupMarkup, /Revoke selected device/);
+  assert.doesNotMatch(
+    privilegedCleanupMarkup,
+    />client-a</,
+    'the cleanup UI does not offer the current device as a revocation target'
+  );
 
   const ordinaryCleanupDevice = await adapter.joinDataset({
     artifact,
@@ -1470,6 +1492,175 @@ async function runContract(): Promise<void> {
   assert.match(cleanupHistoryMarkup, /Recent shared cleanups/);
   assert.match(cleanupHistoryMarkup, /client-a/);
   assert.match(cleanupHistoryMarkup, /Remove invalid shared scouting entry/);
+
+  const revocationTarget = await adapter.joinDataset({
+    artifact,
+    deviceId: 'revocation-target',
+    deviceDisplayName: 'Revocation target',
+  });
+  const targetedRevocation = await adapter.revokeJoinedDevice({
+    datasetId: dataset.datasetId,
+    actorDeviceId: joinedDeviceId,
+    targetDeviceId: revocationTarget.deviceId,
+  });
+  assert.deepEqual(
+    {
+      targetDeviceId: targetedRevocation.device.deviceId,
+      revoked: Boolean(targetedRevocation.device.revokedAt),
+    },
+    {
+      targetDeviceId: revocationTarget.deviceId,
+      revoked: true,
+    },
+    'a cleanup-capable device can revoke one specific joined device'
+  );
+  await assert.rejects(
+    () =>
+      adapter.pushDocuments({
+        datasetId: dataset.datasetId,
+        deviceId: revocationTarget.deviceId,
+        documents: [],
+      }),
+    /revoked/,
+    'a revoked device cannot push Remote sync writes'
+  );
+  await assert.rejects(
+    () =>
+      adapter.pullChanges({
+        datasetId: dataset.datasetId,
+        deviceId: revocationTarget.deviceId,
+        afterCursor: 0,
+      }),
+    /revoked/,
+    'a revoked device cannot pull Remote sync changes'
+  );
+  const overviewAfterTargetedRevocation = await adapter.getJoinedDatasetOverview({
+    datasetId: dataset.datasetId,
+    deviceId: ordinaryCleanupDevice.deviceId,
+  });
+  assert.equal(
+    overviewAfterTargetedRevocation.joinedDevices.some(
+      device => device.deviceId === revocationTarget.deviceId
+    ),
+    false,
+    'targeted revocation leaves the target out of the active joined-device list'
+  );
+  assert.equal(
+    overviewAfterTargetedRevocation.joinedDevices.some(
+      device => device.deviceId === ordinaryCleanupDevice.deviceId
+    ),
+    true,
+    'targeted revocation leaves unrelated devices joined'
+  );
+  const expiringCleanupCredential = await adapter.createCleanupCredential({
+    datasetId: dataset.datasetId,
+    operatorDeviceId: 'operator',
+    expiresAt: Date.now() + 20,
+  });
+  const expiringCleanupDevice = await adapter.joinDataset({
+    artifact,
+    deviceId: 'expiring-cleanup-device',
+    deviceDisplayName: 'Expiring cleanup device',
+  });
+  const expiryRevocationTarget = await adapter.joinDataset({
+    artifact,
+    deviceId: 'expiry-revocation-target',
+    deviceDisplayName: 'Expiry revocation target',
+  });
+  await adapter.provisionCleanupAuthority({
+    datasetId: dataset.datasetId,
+    deviceId: expiringCleanupDevice.deviceId,
+    credentialId: expiringCleanupCredential.credentialId,
+    credentialSecret: expiringCleanupCredential.secret,
+    credentialExpiresAt: expiringCleanupCredential.expiresAt,
+  });
+  await new Promise(resolve => setTimeout(resolve, 30));
+  await assert.rejects(
+    () =>
+      adapter.revokeJoinedDevice({
+        datasetId: dataset.datasetId,
+        actorDeviceId: expiringCleanupDevice.deviceId,
+        targetDeviceId: expiryRevocationTarget.deviceId,
+      }),
+    /does not have cleanup authority/,
+    'expired cleanup authority cannot revoke a joined device'
+  );
+
+  attachClient('revoked-lifecycle-client', artifact);
+  await syncScoutingEntries(adapter);
+  const revokedLifecycleConnection = loadRemoteSyncConnection();
+  assert.ok(revokedLifecycleConnection);
+  const revokedPeriodEntry = scoutingEntry({
+    id: '2026miket::qm77::3314::red',
+    matchKey: 'qm77',
+    matchNumber: 77,
+  });
+  await saveScoutingEntry(revokedPeriodEntry);
+  const revokedPeriodProfile = {
+    ...incomingScoutProfile,
+    scout: { ...incomingScoutProfile.scout, name: 'Revoked Local Scout' },
+    predictions: [],
+    achievements: [],
+  } satisfies ScoutProfileSyncPayload;
+  __setRemoteSyncContractScoutProfile(revokedPeriodProfile);
+  enqueueScoutProfileUpsert(revokedPeriodProfile.scout.name);
+  assert.equal(loadRemoteSyncQueue().length, 1);
+  assert.equal(loadScoutProfileQueue().length, 1);
+  await adapter.revokeJoinedDevice({
+    datasetId: dataset.datasetId,
+    actorDeviceId: joinedDeviceId,
+    targetDeviceId: revokedLifecycleConnection.deviceId,
+  });
+  await assert.rejects(
+    () => syncScoutingEntries(adapter),
+    /revoked/,
+    'a revoked device is hard-disconnected on its next Remote sync attempt'
+  );
+  assert.equal(loadRemoteSyncConnection(), null, 'revocation removes the saved Remote sync join');
+  assert.equal(loadRemoteSyncQueue().length, 0, 'revocation discards queued scouting writes');
+  assert.equal(loadScoutProfileQueue().length, 0, 'revocation discards queued Scout profile writes');
+  assert.deepEqual(
+    __getRemoteSyncContractEntry(revokedPeriodEntry.id),
+    revokedPeriodEntry,
+    'revocation preserves local scouting data'
+  );
+  assert.deepEqual(
+    __getRemoteSyncContractScoutProfile(revokedPeriodProfile.scout.name),
+    revokedPeriodProfile,
+    'revocation preserves local Scout profile data'
+  );
+
+  const serverLocalRevocationTarget = await adapter.joinDataset({
+    artifact,
+    deviceId: 'server-local-revocation-target',
+    deviceDisplayName: 'Server-local revocation target',
+  });
+  const serverLocalRevocation = await adapter.revokeJoinedDeviceServerLocal({
+    datasetId: dataset.datasetId,
+    actorDeviceId: 'utilities-server-local',
+    actorDisplayName: 'Utilities server-local operator',
+    targetDeviceId: serverLocalRevocationTarget.deviceId,
+  });
+  assert.deepEqual(
+    {
+      targetDeviceId: serverLocalRevocation.device.deviceId,
+      revoked: Boolean(serverLocalRevocation.device.revokedAt),
+    },
+    {
+      targetDeviceId: serverLocalRevocationTarget.deviceId,
+      revoked: true,
+    },
+    'the server-local path has ultimate authority to revoke one joined device'
+  );
+  await assert.rejects(
+    () =>
+      adapter.pullChanges({
+        datasetId: dataset.datasetId,
+        deviceId: serverLocalRevocationTarget.deviceId,
+        afterCursor: 0,
+      }),
+    /revoked/
+  );
 
   const serverLocalCleanup = await adapter.cleanupCanonicalDocumentsServerLocal({
     datasetId: dataset.datasetId,
@@ -1564,6 +1755,7 @@ async function runContract(): Promise<void> {
   );
   const restoreChanges = await adapter.pullChanges({
     datasetId: dataset.datasetId,
+    deviceId: ordinaryCleanupDevice.deviceId,
     afterCursor: beforeRestoreHealth.currentCursor,
   });
   assert.equal(
@@ -1645,6 +1837,60 @@ async function runContract(): Promise<void> {
     'emergency override reports that no pre-restore safety snapshot was created'
   );
 
+  const globalRejoinReset = await adapter.resetDatasetForRejoinServerLocal({
+    datasetId: dataset.datasetId,
+    actorDeviceId: 'utilities-server-local',
+    actorDisplayName: 'Utilities server-local operator',
+  });
+  assert.equal(globalRejoinReset.operation, 'global-rejoin-reset');
+  assert.ok(
+    globalRejoinReset.revokedDeviceIds.includes(ordinaryCleanupDevice.deviceId),
+    'global rejoin reset revokes every active joined device'
+  );
+  assert.ok(
+    globalRejoinReset.revokedJoinCredentialIds.includes(credential.credentialId),
+    'global rejoin reset revokes every active join credential'
+  );
+  assert.notEqual(
+    globalRejoinReset.replacementJoinCredential.credentialId,
+    credential.credentialId,
+    'global rejoin reset issues a replacement join credential'
+  );
+  await assert.rejects(
+    () =>
+      adapter.joinDataset({
+        artifact,
+        deviceId: 'old-artifact-after-global-reset',
+        deviceDisplayName: 'Old artifact after global reset',
+      }),
+    /credential has been revoked/,
+    'global rejoin reset invalidates old reusable join artifacts'
+  );
+  await assert.rejects(
+    () =>
+      adapter.pullChanges({
+        datasetId: dataset.datasetId,
+        deviceId: ordinaryCleanupDevice.deviceId,
+        afterCursor: 0,
+      }),
+    /revoked/,
+    'global rejoin reset hard-disconnects previously joined devices'
+  );
+  const rejoinedAfterGlobalReset = await adapter.joinDataset({
+    artifact: {
+      ...artifact,
+      credentialId: globalRejoinReset.replacementJoinCredential.credentialId,
+      credentialSecret: globalRejoinReset.replacementJoinCredential.secret,
+    },
+    deviceId: 'rejoined-after-global-reset',
+    deviceDisplayName: 'Rejoined after global reset',
+  });
+  assert.equal(
+    rejoinedAfterGlobalReset.deviceId,
+    'rejoined-after-global-reset',
+    'reauthorization after global reset uses the normal join flow with a new device identity'
+  );
+
   const migrationAdapter = createInMemoryRemoteSyncAdapter();
   const migrationRestore = await migrationAdapter.restorePortableDatasetSnapshotServerLocal({
     datasetId: portableSnapshot.dataset.datasetId,
@@ -1671,6 +1917,7 @@ async function runContract(): Promise<void> {
   });
   const migratedChanges = await migrationAdapter.pullChanges({
     datasetId: portableSnapshot.dataset.datasetId,
+    deviceId: 'migration-client',
     afterCursor: 0,
   });
   assert.equal(

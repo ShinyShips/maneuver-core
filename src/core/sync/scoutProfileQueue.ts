@@ -1,6 +1,7 @@
 import { createCanonicalDocumentIdentity } from './canonicalDocumentIdentity';
 import { loadRemoteSyncConnection } from './remoteSyncConnection';
 import { markRemoteSyncDocumentUnsynced } from './remoteSyncDocumentStatus';
+import { excludeRemoteSyncItemsForDevice } from './remoteSyncQueueFilter';
 
 const SCOUT_PROFILE_QUEUE_STORAGE_KEY = 'maneuver.remoteSync.scoutProfileQueue';
 
@@ -81,6 +82,12 @@ export function markScoutProfileQueueItemsAttempted(itemIds: string[]): void {
 export function removeScoutProfileQueueItems(itemIds: string[]): void {
   const ids = new Set(itemIds);
   saveScoutProfileQueue(loadScoutProfileQueue().filter(item => !ids.has(item.id)));
+}
+
+export function discardScoutProfileQueueForDevice(datasetId: string, deviceId: string): void {
+  saveScoutProfileQueue(
+    excludeRemoteSyncItemsForDevice(loadScoutProfileQueue(), datasetId, deviceId)
+  );
 }
 
 function saveScoutProfileQueue(queue: ScoutProfileQueueItem[]): void {

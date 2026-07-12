@@ -14,6 +14,7 @@ import type {
   DatasetHealth,
   DatasetEventRecord,
   GetJoinedDatasetOverviewInput,
+  GlobalRejoinResetResult,
   JoinedDatasetOverview,
   DatasetJoinCredential,
   JoinDatasetInput,
@@ -25,9 +26,13 @@ import type {
   PushDocumentsInput,
   PushDocumentsResult,
   RemoteSyncAdapter,
+  ResetDatasetForRejoinServerLocalInput,
+  RevokeJoinedDeviceInput,
+  RevokeJoinedDeviceResult,
   RestorePortableDatasetSnapshotServerLocalInput,
   RotateJoinCredentialInput,
   ServerLocalCleanupCanonicalDocumentsInput,
+  ServerLocalRevokeJoinedDeviceInput,
   ServerLocalRestoreResult,
   SharedRestoreEvent,
   TeamDataset,
@@ -50,6 +55,7 @@ import {
   selectRecentRestoreEvents,
   type CleanupCapabilityProjection,
 } from '../datasetOverview';
+import { RemoteSyncDeviceNotJoinedError, RemoteSyncDeviceRevokedError } from '../remoteSyncErrors';
 
 const SYNC_AUTHORITY_DEVICE_ID = 'maneuver-sync-authority';
 
@@ -146,8 +152,11 @@ class InMemoryRemoteSyncAdapter implements RemoteSyncAdapter {
     const dataset = this.requireDataset(input.datasetId);
     const device = dataset.devices.get(input.deviceId);
 
-    if (!device || device.revokedAt) {
+    if (!device) {
       throw new Error(`Remote sync device is not joined to dataset ${input.datasetId}.`);
+    }
+    if (device.revokedAt) {
+      throw new Error(`Remote sync device has been revoked for dataset ${input.datasetId}.`);
     }
 
     const credential = dataset.credentials.get(input.credentialId);
@@ -188,6 +197,22 @@ class InMemoryRemoteSyncAdapter implements RemoteSyncAdapter {
     }
   }
 
+  async revokeJoinedDevice(input: RevokeJoinedDeviceInput): Promise<RevokeJoinedDeviceResult> {
+    const dataset = this.requireDataset(input.datasetId);
+    const actor = dataset.devices.get(input.actorDeviceId);
+    const hasCleanupAuthority = [...dataset.cleanupCapabilities.values()].some(
+      capability =>
+        capability.deviceId === input.actorDeviceId &&
+        !capability.revokedAt &&
+        (!capability.expiresAt || capability.expiresAt > Date.now())
+    );
+    if (!actor || actor.revokedAt || !hasCleanupAuthority) {
+      throw new Error(`Remote sync device ${input.actorDeviceId} does not have cleanup authority.`);
+    }
+
+    return this.commitJoinedDeviceRevocation(dataset, input.datasetId, input.targetDeviceId);
+  }
+
   async cleanupCanonicalDocuments(
     input: CleanupCanonicalDocumentsInput
   ): Promise<CleanupCanonicalDocumentsResult> {
@@ -224,6 +249,48 @@ class InMemoryRemoteSyncAdapter implements RemoteSyncAdapter {
       input.actorDeviceId,
       input.actorDisplayName
     );
+  }
+
+  async revokeJoinedDeviceServerLocal(
+    input: ServerLocalRevokeJoinedDeviceInput
+  ): Promise<RevokeJoinedDeviceResult> {
+    return this.commitJoinedDeviceRevocation(
+      this.requireDataset(input.datasetId),
+      input.datasetId,
+      input.targetDeviceId
+    );
+  }
+
+  async resetDatasetForRejoinServerLocal(
+    input: ResetDatasetForRejoinServerLocalInput
+  ): Promise<GlobalRejoinResetResult> {
+    const dataset = this.requireDataset(input.datasetId);
+    const revokedAt = Date.now();
+    const revokedDeviceIds: string[] = [];
+    for (const [deviceId, device] of dataset.devices) {
+      if (!device.revokedAt) {
+        revokedDeviceIds.push(deviceId);
+        dataset.devices.set(deviceId, { ...device, revokedAt });
+      }
+    }
+    const revokedJoinCredentialIds: string[] = [];
+    for (const [credentialId, credential] of dataset.credentials) {
+      if (credential.credentialKind === 'join' && !credential.revokedAt) {
+        revokedJoinCredentialIds.push(credentialId);
+        dataset.credentials.set(credentialId, { ...credential, revokedAt });
+      }
+    }
+    dataset.cleanupCapabilities.clear();
+    const replacementJoinCredential = await this.createJoinCredential({
+      datasetId: input.datasetId,
+      operatorDeviceId: input.actorDeviceId,
+    });
+    return {
+      operation: 'global-rejoin-reset',
+      revokedDeviceIds,
+      revokedJoinCredentialIds,
+      replacementJoinCredential,
+    };
   }
 
   async createPortableDatasetSnapshotServerLocal(
@@ -414,6 +481,10 @@ class InMemoryRemoteSyncAdapter implements RemoteSyncAdapter {
 
   async joinDataset(input: JoinDatasetInput): Promise<JoinedDeviceIdentity> {
     const dataset = this.requireDataset(input.artifact.datasetId);
+    const existingDevice = dataset.devices.get(input.deviceId);
+    if (existingDevice?.revokedAt) {
+      throw new RemoteSyncDeviceRevokedError(input.artifact.datasetId, input.deviceId);
+    }
     const credential = dataset.credentials.get(input.artifact.credentialId);
 
     if (!credential || credential.credentialKind !== 'join') {
@@ -449,8 +520,11 @@ class InMemoryRemoteSyncAdapter implements RemoteSyncAdapter {
     const dataset = this.requireDataset(input.datasetId);
     const device = dataset.devices.get(input.deviceId);
 
-    if (!device || device.revokedAt) {
+    if (!device) {
       throw new Error(`Remote sync device is not joined to dataset ${input.datasetId}.`);
+    }
+    if (device.revokedAt) {
+      throw new RemoteSyncDeviceRevokedError(input.datasetId, input.deviceId);
     }
 
     const committed: CanonicalSyncDocument<TPayload>[] = [];
@@ -533,6 +607,13 @@ class InMemoryRemoteSyncAdapter implements RemoteSyncAdapter {
     input: PullChangesInput
   ): Promise<PullChangesResult<TPayload>> {
     const dataset = this.requireDataset(input.datasetId);
+    const device = dataset.devices.get(input.deviceId);
+    if (!device) {
+      throw new RemoteSyncDeviceNotJoinedError(input.datasetId, input.deviceId);
+    }
+    if (device.revokedAt) {
+      throw new RemoteSyncDeviceRevokedError(input.datasetId, input.deviceId);
+    }
     const pageSize = input.pageSize ?? 100;
     const matchingChanges = dataset.changes.filter(change => change.cursor > input.afterCursor);
     const changes = matchingChanges.slice(0, pageSize) as CanonicalSyncChange<TPayload>[];
@@ -581,6 +662,10 @@ class InMemoryRemoteSyncAdapter implements RemoteSyncAdapter {
         createdAt: dataset.dataset.createdAt,
         lastChangedAt: dataset.changes.at(-1)?.changedAt,
       },
+      joinedDevices: [...dataset.devices.values()]
+        .filter(identity => !identity.revokedAt)
+        .map(identity => ({ deviceId: identity.deviceId, displayName: identity.displayName }))
+        .sort((left, right) => left.displayName.localeCompare(right.displayName)),
       cleanupCapableDevices: selectCleanupCapableDevices(
         [...dataset.devices.values()],
         [...dataset.cleanupCapabilities.values()]
@@ -599,5 +684,24 @@ class InMemoryRemoteSyncAdapter implements RemoteSyncAdapter {
     }
 
     return dataset;
+  }
+
+  private commitJoinedDeviceRevocation(
+    dataset: InMemoryDatasetState,
+    datasetId: string,
+    targetDeviceId: string
+  ): RevokeJoinedDeviceResult {
+    const target = dataset.devices.get(targetDeviceId);
+    if (!target) {
+      throw new Error(`Remote sync device is not joined to dataset ${datasetId}.`);
+    }
+    const revokedDevice = { ...target, revokedAt: Date.now() };
+    dataset.devices.set(targetDeviceId, revokedDevice);
+    for (const [credentialId, capability] of dataset.cleanupCapabilities) {
+      if (capability.deviceId === targetDeviceId) {
+        dataset.cleanupCapabilities.delete(credentialId);
+      }
+    }
+    return { device: structuredClone(revokedDevice) };
   }
 }

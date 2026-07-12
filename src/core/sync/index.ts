@@ -25,9 +25,11 @@ export type {
   DatasetOperatorRecoveryArtifact,
   JoinDatasetInput,
   JoinedDeviceIdentity,
+  JoinedDeviceSummary,
   JoinedDatasetOverview,
   GetJoinedDatasetOverviewInput,
   CleanupCapableDeviceSummary,
+  GlobalRejoinResetResult,
   PullChangesInput,
   PullChangesResult,
   PortableDatasetSnapshot,
@@ -45,6 +47,10 @@ export type {
   RemoteSyncAdminAdapter,
   RemoteSyncClientAdapter,
   RotateJoinCredentialInput,
+  RevokeJoinedDeviceInput,
+  RevokeJoinedDeviceResult,
+  ResetDatasetForRejoinServerLocalInput,
+  ServerLocalRevokeJoinedDeviceInput,
   TeamDataset,
   SharedRestoreEvent,
 } from './types';
@@ -59,6 +65,7 @@ export { ServerLocalRestoreFailedError } from './portableDatasetRestore';
 export {
   clearRemoteSyncConnection,
   createRemoteSyncConnection,
+  createJoinDatasetInputFromConnection,
   loadRemoteSyncConnection,
   parseDatasetJoinArtifact,
   saveRemoteSyncConnection,
@@ -122,6 +129,7 @@ export type {
   ResolveScoutNameCollisionInput,
 } from './scoutNameCollision';
 export type { RemoteSyncRunResult } from './remoteSyncEngine';
+export { RemoteSyncDeviceNotJoinedError, RemoteSyncDeviceRevokedError } from './remoteSyncErrors';
 export type {
   ScoutProfileReconciliation,
   ScoutProfileSyncDocument,

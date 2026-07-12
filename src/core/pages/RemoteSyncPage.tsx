@@ -75,6 +75,7 @@ export default function RemoteSyncPage() {
   const [cleanupProvisioningArtifactText, setCleanupProvisioningArtifactText] = useState('');
   const [cleanupTargetsText, setCleanupTargetsText] = useState('');
   const [cleanupReason, setCleanupReason] = useState('');
+  const [revocationTargetDeviceId, setRevocationTargetDeviceId] = useState('');
   const [cleanupStatus, setCleanupStatus] = useState<string | null>(null);
   const [cleanupError, setCleanupError] = useState<string | null>(null);
   const [isCleanupBusy, setIsCleanupBusy] = useState(false);
@@ -284,6 +285,35 @@ export default function RemoteSyncPage() {
     }
   };
 
+  const handleRevokeJoinedDevice = async () => {
+    if (!connection || !revocationTargetDeviceId) {
+      return;
+    }
+
+    setIsCleanupBusy(true);
+    setCleanupError(null);
+    setCleanupStatus(null);
+    try {
+      const target = datasetOverview?.joinedDevices.find(
+        device => device.deviceId === revocationTargetDeviceId
+      );
+      await createRemoteSyncAdapterForConnection(connection).revokeJoinedDevice({
+        datasetId: connection.datasetId,
+        actorDeviceId: connection.deviceId,
+        targetDeviceId: revocationTargetDeviceId,
+      });
+      setRevocationTargetDeviceId('');
+      setCleanupStatus(
+        `${target?.displayName ?? 'The selected device'} was revoked. Reauthorization requires the normal join flow.`
+      );
+      await refreshDatasetOverview();
+    } catch (error) {
+      setCleanupError(error instanceof Error ? error.message : 'Device revocation failed.');
+    } finally {
+      setIsCleanupBusy(false);
+    }
+  };
+
   const handleDisconnect = async () => {
     if (!connection) {
       return;
@@ -354,6 +384,9 @@ export default function RemoteSyncPage() {
             {datasetOverview && <JoinedDatasetOverviewPanel overview={datasetOverview} />}
             <CleanupAuthorityPanel
               cleanupCapable={cleanupCapable}
+              currentDeviceId={connection.deviceId}
+              joinedDevices={datasetOverview?.joinedDevices ?? []}
+              revocationTargetDeviceId={revocationTargetDeviceId}
               cleanupProvisioningArtifactText={cleanupProvisioningArtifactText}
               cleanupTargetsText={cleanupTargetsText}
               cleanupReason={cleanupReason}
@@ -361,8 +394,10 @@ export default function RemoteSyncPage() {
               onCleanupProvisioningArtifactTextChange={setCleanupProvisioningArtifactText}
               onCleanupTargetsTextChange={setCleanupTargetsText}
               onCleanupReasonChange={setCleanupReason}
+              onRevocationTargetDeviceIdChange={setRevocationTargetDeviceId}
               onProvision={() => void handleProvisionCleanupAuthority()}
               onCleanup={() => void handleReplicatedCleanup()}
+              onRevokeDevice={() => void handleRevokeJoinedDevice()}
             />
             {cleanupStatus && (
               <Alert>

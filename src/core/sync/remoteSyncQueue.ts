@@ -9,6 +9,7 @@ import { loadRemoteSyncConnection, type RemoteSyncConnection } from './remoteSyn
 import type { QueueHealth } from './types';
 import { markRemoteSyncDocumentUnsynced } from './remoteSyncDocumentStatus';
 import { loadScoutProfileQueue } from './scoutProfileQueue';
+import { excludeRemoteSyncItemsForDevice } from './remoteSyncQueueFilter';
 
 const QUEUE_STORAGE_KEY = 'maneuver.remoteSync.scoutingQueue';
 const HEALTH_STORAGE_KEY = 'maneuver.remoteSync.queueHealth';
@@ -76,6 +77,10 @@ export function loadRemoteSyncQueueForDataset(datasetId: string): RemoteSyncQueu
 export function removeRemoteSyncQueueItems(itemIds: string[]): void {
   const itemIdSet = new Set(itemIds);
   saveRemoteSyncQueue(loadRemoteSyncQueue().filter(item => !itemIdSet.has(item.id)));
+}
+
+export function discardRemoteSyncQueueForDevice(datasetId: string, deviceId: string): void {
+  saveRemoteSyncQueue(excludeRemoteSyncItemsForDevice(loadRemoteSyncQueue(), datasetId, deviceId));
 }
 
 export function markRemoteSyncQueueItemsAttempted(itemIds: string[]): void {
